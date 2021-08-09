@@ -8,11 +8,10 @@ To eventually become an unofficial working Pytorch implementation of [RGN2](http
 $ pip install rgn2-replica
 ```
 
-## TO-DO LIST: 
+### TO-DO LIST: 
 
-* [-] Provide basic package and file structure
-* [ ] Contribute adaptation of RGN1 for matrix. 
-* [ ] Contribute b
+* [x] Provide basic package and file structure
+* [ ] Contribute adaptation of RGN1 for different ops. 
 * [ ] Contirbute trainer classes / functionality
 * [ ] Adapt functionality from [MP-NeRF](https://github.com/EleutherAI/mp_nerf): 
 	* [ ] Sidechain building
@@ -49,6 +48,17 @@ Please, follow [this guideline on open source contribtuion](https://numpy.org/de
     eprint = {https://www.biorxiv.org/content/early/2021/08/04/2021.08.02.454840.full.pdf},
     journal = {bioRxiv}
 }
+
+@article{alquraishi_2019,
+	author={AlQuraishi, Mohammed},
+	title={End-to-End Differentiable Learning of Protein Structure},
+	volume={8},
+	DOI={10.1016/j.cels.2019.03.006},
+	URL={https://www.cell.com/cell-systems/fulltext/S2405-4712(19)30076-6}
+	number={4},
+	journal={Cell Systems},
+	year={2019},
+	pages={292-301.e3}
 
 ```
 
