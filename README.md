@@ -15,6 +15,7 @@ $ pip install rgn2-replica
 	* [ ] Simple LSTM with: 
 		* [ ] Inputs (B, L, emb_dim)
 		* [ ] Outputs (B, L, 4) (4 features which should be outputs of linear projections)
+	* [ ] Modifications to convert LSTM cell into RGN cell
 
 * [ ] To be merged when first versions of RGN are ready: 
 	* [x] ~~Geometry module~~ 
