@@ -18,7 +18,7 @@ $ pip install rgn2-replica
 
 * [ ] To be merged when first versions of RGN are ready: 
 	* [x] ~~Geometry module~~ 
-	* [x] ~~Adapt functionality from [MP-NeRF](https://github.com/EleutherAI/mp_nerf): ~~
+	* [x] ~~Adapt functionality from [MP-NeRF](https://github.com/EleutherAI/mp_nerf):~~
 		* [x] ~~Sidechain building~~
 		* [x] ~~Full backbone from CA~~
 		* [x] ~~Fast loss functions and metrics~~
