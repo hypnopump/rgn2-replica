@@ -8,16 +8,32 @@ To eventually become an unofficial working Pytorch implementation of [RGN2](http
 $ pip install rgn2-replica
 ```
 
-### TO-DO LIST: 
+### TO-DO LIST: ordered by priority
 
-* [x] Provide basic package and file structure
+* [x] ~~Provide basic package and file structure~~
 * [ ] Contribute adaptation of RGN1 for different ops. 
-* [ ] Contirbute trainer classes / functionality
-* [ ] Adapt functionality from [MP-NeRF](https://github.com/EleutherAI/mp_nerf): 
-	* [ ] Sidechain building
-	* [ ] Full backbone from CA
-	* [ ] Fast loss functions and metrics
-* [ ] Contribute Rosetta Scripts (contact me by email/discord to get a key for Rosetta if interested in doing this part. )
+	* [ ] Simple LSTM with: 
+		* [ ] Inputs (B, L, emb_dim)
+		* [ ] Outputs (B, L, 4) (4 features which should be outputs of linear projections)
+
+* [ ] To be merged when first versions of RGN are ready: 
+	* [x] ~~Geometry module~~ 
+	* [x] ~~Adapt functionality from [MP-NeRF](https://github.com/EleutherAI/mp_nerf): ~~
+		* [x] ~~Sidechain building~~
+		* [x] ~~Full backbone from CA~~
+		* [x] ~~Fast loss functions and metrics~~
+
+* [ ] Contirbute trainer classes / functionality. 
+	* [ ] Sequence preprocessing for AminoBERT
+		* [ ] Simple/zoneout masking
+		* [ ] inverted fragments
+		* [ ] ...
+
+* [ ] Contribute Data Infra for training: 
+	* [ ] Sequences: UniParc sequences, etc
+	* [x] Structures: will use the amazing [sidechainnet](https://github.com/jonathanking/sidechainnet) work by Jonathan King  
+
+* [ ] Contribute Rosetta Scripts ( contact me by email/discord to get a key for Rosetta if interested in doing this part. )
 
 * **NOTES**: 
 * Use functionality provided in [MP-NeRF](https://github.com/EleutherAI/mp_nerf) wherever possible (avoid repetition). 
