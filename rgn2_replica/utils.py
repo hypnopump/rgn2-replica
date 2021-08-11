@@ -68,13 +68,3 @@ def mask_seq(seq, mask_tok=99, prop_len=0.15, lam=2.5):
     return seq
 
 
-
-
-
-
-
-
-
-
-
-
