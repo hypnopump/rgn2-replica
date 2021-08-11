@@ -26,9 +26,9 @@ $ pip install rgn2-replica
 
 * [ ] Contirbute trainer classes / functionality. 
 	* [ ] Sequence preprocessing for AminoBERT
-		* [ ] Simple/zoneout masking
 		* [x] ~~inverted fragments~~
-		* [ ] sequence masking
+		* [x] ~~sequence masking~~
+		* [ ] Dataloder
 		* [ ] ...
 
 * [ ] Contribute Data Infra for training: 
