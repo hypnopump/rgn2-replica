@@ -27,14 +27,15 @@ $ pip install rgn2-replica
 * [ ] Contirbute trainer classes / functionality. 
 	* [ ] Sequence preprocessing for AminoBERT
 		* [ ] Simple/zoneout masking
-		* [ ] inverted fragments
+		* [x] ~~inverted fragments~~
+		* [ ] sequence masking
 		* [ ] ...
 
 * [ ] Contribute Data Infra for training: 
 	* [ ] Sequences: UniParc sequences, etc
 	* [x] Structures: will use the amazing [sidechainnet](https://github.com/jonathanking/sidechainnet) work by Jonathan King  
 
-* [ ] Contribute Rosetta Scripts ( contact me by email/discord to get a key for Rosetta if interested in doing this part. )
+* [ ] Contribute Rosetta Scripts ( contact me by email (ericalcaide1@gmai.com) / [discord](https://discord.gg/VpPpa9EZ) to get a key for Rosetta if interested in doing this part. )
 
 * **NOTES**: 
 * Use functionality provided in [MP-NeRF](https://github.com/EleutherAI/mp_nerf) wherever possible (avoid repetition). 
