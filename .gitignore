@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# custom tests / dev ideas
+notebooks/*
+
 # MacOS
 .DS_Store
 *.DS_Store

@@ -12,12 +12,12 @@ $ pip install rgn2-replica
 
 * [x] ~~Provide basic package and file structure~~
 * [ ] Contribute adaptation of RGN1 for different ops. 
+	* [x] ~~Simple LSTM with:~~ 
+			* [x] ~~Inputs (B, L, emb_dim)~~
+			* [x] ~~Outputs (B, L, 4) (4 features which should be outputs of linear projections)~~
 	* [ ] Modifications to convert LSTM cell into RGN cell
 
 * [ ] To be merged when first versions of RGN are ready: 
-	* [x] Simple LSTM with: 
-			* [x] Inputs (B, L, emb_dim)
-			* [x] Outputs (B, L, 4) (4 features which should be outputs of linear projections)
 	* [x] ~~Geometry module~~ 
 	* [x] ~~Adapt functionality from [MP-NeRF](https://github.com/EleutherAI/mp_nerf):~~
 		* [x] ~~Sidechain building~~
