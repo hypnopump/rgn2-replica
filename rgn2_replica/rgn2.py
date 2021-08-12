@@ -47,33 +47,42 @@ class RGN2_LSTM_Naive(torch.nn.Module):
     
     def forward(self, x): 
         """ Inputs: (..., Emb_dim) -> Outputs: (..., 4). 
-			
-			Note: 4 last dims of input is angles of previous point.
-			      for first point, add dumb token [-5, -5, -5, -5]
+            
+            Note: 4 last dims of input is angles of previous point.
+                  for first point, add dumb token [-5, -5, -5, -5]
         """
         for i,rnn_layer in enumerate(self.stacked_lstm): 
             x, (h_n, c_n) = rnn_layer(x)
         return self.last_mlp(x)
 
     def predict_fold(self, x):
-    	""" Autoregressively generates the protein fold
-    		Inputs: (L, Emb_dim) -> Outputs: (L, 4). 
+        """ Autoregressively generates the protein fold
+            Inputs: ((B), L, Emb_dim) -> Outputs: ((B), L, 4). 
 
-    		Note: 4 last dims of input is dumb token for first res. 
-    			  Use same as in `.forward()` method.
-    	"""
-    	preds_list = []
-    	for i in range(x.shape[-2]):
-    		if i == 0: 
-    			input_step = x[i:i+1, :]
-    		else: 
-    			# add angle predicton from pred step to this one.
-    			input_step = torch.cat([x[i:i+1, :-4], preds_list[-1][:, -4:]])
+            Note: 4 last dims of input is dumb token for first res. 
+                  Use same as in `.forward()` method.
+        """
+        # handles batch shape
+        squeeze = len(x.shape) == 2
+        if squeeze: 
+            x = x.unsqueeze(dim=0)
+        x_t = x.transpose(0, 1) # works on length, not batch
 
-    		preds_list.append( self.forward(input_step) )
+        preds_list = []
+        for i in range(x.shape[-2]):
+            if i == 0: 
+                input_step = x[i:i+1]
+            else: 
+                # add angle predicton from pred step to this one.
+                input_step = torch.cat([x[i:i+1, :,  :-4], preds_list[-1][:, :, -4:]])
 
-    	return torch.cat(preds_list, dim=-2) 
-    	
+            preds_list.append( self.forward(input_step) )
+        
+        final_pred = torch.cat(preds_list, dim=0).transopse(0,1)
+
+        # re-handles batch shape
+        return final_pred.squeeze() if squeeze else final_pred
+        
 
 
 class Refiner(torch.nn.Module): 
