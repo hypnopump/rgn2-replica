@@ -51,8 +51,11 @@ def masked_lang(seq, mask_tok=99, prop_len=0.15, lam=2.5):
 def mask_seq(seq, mask_tok=99, prop_len=0.15, lam=2.5): 
     """ Masks a sequence as described in paper - page 16
         https://www.biorxiv.org/content/10.1101/2021.08.02.454840v1.full.pdf
-        Inputs, Outputs: 
+        Inputs:  
         * seq: (N,) tensor
+        Outputs: 
+        * seq: (N,) tensor 
+        * chunk_permte: bool (indicates seq has been chunk-permutted)
     """
     p = random.random()
     # chunk permutation
@@ -65,6 +68,8 @@ def mask_seq(seq, mask_tok=99, prop_len=0.15, lam=2.5):
         lam_eff = 0 if p < ( 0.3 + 0.7 * (1 - 0.3) ) else lam
         seq = masked_lang(seq, mask_tok=mask_tok, 
         				  prop_len=prop_len, lam=lam_eff)
-    return seq
+    return seq, p < 0.3
+
+
 
 
