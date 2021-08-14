@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-class AminoBretLoss(nn.Module):
+class AminoBERTLoss(nn.Module):
 
     def __init__(self, padding_token=-100, vocab_size=24):
         super().__init__()
@@ -19,9 +19,9 @@ class AminoBretLoss(nn.Module):
         chunk_perm: torch.Tensor,
     ):
         """
-        logit_out:  bs, len, vocab_size
-        logit_chunk_perm: bs, 2 
-        target: bs, len
+        logit_out:  (bs, len, vocab_size) tensor
+        logit_chunk_perm: (bs, 2) tensor 
+        target: (bs, len) tensor
         chunk_perm: (bs, 1)
         """
         global_petrub = 1 - chunk_perm
@@ -37,18 +37,3 @@ class AminoBretLoss(nn.Module):
 
         return loss.mean()
     
-    
-"""
-vocab_size = 24
-bs = 20
-logit_out = torch.rand(bs, 10, vocab_size)
-logit_chunk_perm = torch.rand(bs, 2)
-target = torch.randint(1, 20, (bs, 10))
-chunk_perm = torch.randint(0, 2, (bs,))
-
-loss_func = AminoBretLoss(vocab_size=vocab_size)
-
-loss = loss_func(logit_out, logit_chunk_perm, target, chunk_perm)
-print(loss)
-
-"""
