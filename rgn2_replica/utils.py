@@ -7,19 +7,26 @@ import numpy as np
 
 def chunk_permute(seq):
     """ Permutes a chunk from the sequence. 
-        Inputs, Outputs: 
+        Inputs: 
         * seq: (N,) tensor. 
+        Outputs: 
+        * seq: (N,) tensor
+        * labels: (N,) long tensor (idx of each chunk)
     """
     x = random.randint(2, 10) 
     step = math.ceil( seq.shape[0] / x )
     seq_ = seq.clone()
-    perms = []
+
+    perms, labels = [], []
     for i in range(x):
         chunk = seq_[i*step:(i+1)*step].numpy()
         np.random.shuffle(chunk)
         perms.append( torch.from_numpy(chunk) )
+        labels.append( torch.ones_like(perms[-1]) * i )
 
-    return torch.cat( perms , dim=0).to(seq.device)
+    perms = torch.cat( perms , dim=0).to(seq.device)
+    labels = torch.cat( labels , dim=0).to(seq.device)
+    return perms, labels
 
 
 def masked_lang(seq, mask_tok=99, prop_len=0.15, lam=2.5): 
@@ -56,19 +63,26 @@ def mask_seq(seq, mask_tok=99, prop_len=0.15, lam=2.5):
         Outputs: 
         * seq: (N,) tensor 
         * chunk_permte: bool (indicates seq has been chunk-permutted)
+    	* labels: (N,) tensor. Chunk belonging of each AA
     """
     p = random.random()
+    labels = None
     # chunk permutation
     if p < 0.3: 
-        if p < 0.3*0.35: seq = chunk_permute(seq) # modify
-        else: pass                                # unmodified
+    	# modify (prob=0.35) or unchanged
+        if p < 0.3*0.35: seq, labels = chunk_permute(seq) 
+        else: pass                              
     # masked language modelling
     else: 
         # normal mask or clumping depending on prob - regulate lambda
         lam_eff = 0 if p < ( 0.3 + 0.7 * (1 - 0.3) ) else lam
         seq = masked_lang(seq, mask_tok=mask_tok, 
         				  prop_len=prop_len, lam=lam_eff)
-    return seq, p < 0.3
+    # create chunk labels
+    if labels is None: 
+    	labels = torch.zeros_like(seq) 
+
+    return seq, p < 0.3*0.35, labels
 
 
 
