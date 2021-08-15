@@ -25,7 +25,7 @@ setup(
     'mp-nerf',
     'datasets>=1.10',
     'transformers>=4.2',
-    'x-transformers>=0.16',
+    'x-transformers>=0.16.1',
     'pytorch-lightning>=1.4'
   ],
   setup_requires=[
