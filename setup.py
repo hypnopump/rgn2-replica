@@ -22,7 +22,11 @@ setup(
     'sidechainnet',
     'proDy',
     'tqdm',
-    'mp-nerf'
+    'mp-nerf',
+    'datasets>=1.10',
+    'transformers>=4.2',
+    'x-transformers>=0.16',
+    'pytorch-lightning>=1.4'
   ],
   setup_requires=[
     'pytest-runner',
