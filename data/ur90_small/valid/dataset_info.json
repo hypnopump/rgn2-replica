@@ -17,7 +17,7 @@
       "id": null,
       "_type": "Value"
     },
-    "tokens": {
+    "input_ids": {
       "feature": {
         "dtype": "int64",
         "id": null,

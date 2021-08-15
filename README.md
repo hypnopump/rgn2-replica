@@ -8,6 +8,14 @@ To eventually become an unofficial working Pytorch implementation of [RGN2](http
 $ pip install rgn2-replica
 ```
 
+## To train ProteinLM, run the following command with default parameters
+
+```bash
+python -m scripts.lmtrainer
+```
+This will start the run using sample dataset in repo directory on CPU.
+
+
 ### TO-DO LIST: ordered by priority
 
 * [x] ~~Provide basic package and file structure~~
