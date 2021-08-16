@@ -21,11 +21,19 @@ This will start the run using sample dataset in repo directory on CPU.
 ### TO-DO LIST: ordered by priority
 
 * [x] ~~Provide basic package and file structure~~
-* [ ] Contribute adaptation of RGN1 for different ops. 
-	* [x] ~~Simple LSTM with:~~ 
-	    * [x] ~~Inputs (B, L, emb_dim)~~
-	    * [x] ~~Outputs (B, L, 4) (4 features which should be outputs of linear projections)~~
-	* [ ] Modifications to convert LSTM cell into RGN cell
+* [ ] **RGN2**:
+	* [x]~~Contribute adaptation of RGN1 for different ops~~
+		* [x] ~~Simple LSTM with:~~ 
+		    * [x] ~~Inputs (B, L, emb_dim)~~
+		    * [x] ~~Outputs (B, L, 4) (4 features which should be outputs of linear projections)~~
+	* [ ] Find a good (and reproducible) training scheme
+	* [ ] Benchmark regression vs classification of torsional alphabet
+* [ ] **Language Model**: 
+	* [x] ~~basic tokenizer~~ by [@gurvindersingh](https://github.com/gurvindersingh)
+	* [x] ~~basic architecture~~ by [@gurvindersingh](https://github.com/gurvindersingh)
+	* [ ] adapt for desired outputs
+	* [ ] find a combination of pretraining losses
+
 
 * [ ] To be merged when first versions of RGN are ready: 
 	* [x] ~~Geometry module~~ 
@@ -33,11 +41,14 @@ This will start the run using sample dataset in repo directory on CPU.
 		* [x] ~~Sidechain building~~
 		* [x] ~~Full backbone from CA~~
 		* [x] ~~Fast loss functions and metrics~~
+		* [x] ~~Modifications to convert LSTM cell into RGN cell~~
 
 * [ ] Contirbute trainer classes / functionality. 
 	* [ ] Sequence preprocessing for AminoBERT
 		* [x] ~~inverted fragments~~
 		* [x] ~~sequence masking~~
+		* [x] ~~loss function wrapper v1~~ by [@DrHB](https://github.com/DrHB)
+		* [x] ~~Sample dataset~~ by [@gurvindersingh](https://github.com/gurvindersingh)
 		* [ ] Dataloder
 		* [ ] ...
 

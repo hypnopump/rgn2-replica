@@ -1,25 +1,15 @@
 # Author: Eric Alcaide ( @hypnopump ) 
 import os
 import sys
-import numpy as np
-
 import torch
-from torch.nn import Parameter
-from torch.nn.modules.rnn import RNNBase, LSTMCell
-from torch.nn import functional as F
+import numpy as np
 
 from rgn2_replica.utils import *
 
 
-class AminoBERT(torch.nn.Module): 
-    """ AminoBERT module providing high-quality embeddings for AAs. """
-    def __init__(self, **kwargs): 
-        return
-
-
-class RGN2_LSTM_Naive(torch.nn.Module): 
-    def __init__(self, layers, emb_dim=1280, hidden=[256, 128, 64], 
-                 bidirectional=True, mlp_hidden=[32, 4]): 
+class RGN2_Naive(torch.nn.Module): 
+    def __init__(self, layers=3, emb_dim=1280, hidden=256,
+                 bidirectional=False, mlp_hidden=[16, 4], layer_type="LSTM"): 
         """ RGN2 module which turns embeddings into a Cα trace.
             Inputs: 
             * layers: int. number of rnn layers
@@ -27,22 +17,38 @@ class RGN2_LSTM_Naive(torch.nn.Module):
             * hidden: int or list of ints. hidden dim at each layer
             * bidirectional: bool. whether to use bidirectional LSTM
         """
-        super(RGN2_LSTM_Naive, self).__init__()
+        super(RGN2_Naive, self).__init__()
         hidden_eff = lambda x: x + x*int(bidirectional)
+        layer_types = {
+            "LSTM": torch.nn.LSTM,
+            "GRU": torch.nn.GRU,
+        }
         # store params
+        self.layer_type = layer_type
         self.layers = layers
         self.hidden = [emb_dim]+hidden if isinstance(hidden, list) else \
                       [emb_dim] + [hidden]*layers
         self.bidirectional = bidirectional
         self.mlp_hidden = mlp_hidden
         # declare layers
-        self.stacked_lstm = torch.nn.ModuleList([
-            torch.nn.LSTM(input_size = hidden_eff(self.hidden[i]) if i!=0 else self.hidden[i],
-                          hidden_size = self.hidden[i+1],
-                          batch_first = True,
-                          bidirectional = bidirectional,
-                         ) for i in range(self.layers)
-        ])
+
+        self.stacked_lstm_f = layer_types[self.layer_type](
+            input_size = self.hidden[0],
+            hidden_size = self.hidden[1],
+            batch_first = True,
+            bidirectional = False,
+            num_layers = self.layers
+        ) 
+        # add backward lstm
+        if self.bidirectional:
+            self.stacked_lstm_b = layer_types[self.layer_type](
+                input_size = self.hidden[0],
+                hidden_size = self.hidden[1],
+                batch_first = True,
+                bidirectional = False,
+                num_layers = self.layers
+            ) 
+
         self.last_mlp = torch.nn.Sequential(
             torch.nn.Linear(hidden_eff(self.hidden[-1]), self.mlp_hidden[0]),
             torch.nn.SiLU(),
@@ -50,61 +56,62 @@ class RGN2_LSTM_Naive(torch.nn.Module):
         )
     
     def forward(self, x): 
-        """ Inputs: (..., Emb_dim) -> Outputs: (..., 4). """
-        for i,rnn_layer in enumerate(self.stacked_lstm): 
-            x, (h_n, c_n) = rnn_layer(x)
+        """ Inputs:
+            * x (B, L, Emb_dim) 
+            Outputs: (B, L, 4). 
+            
+            Note: 4 last dims of input is angles of previous point.
+                  for first point, add dumb token [-5, -5, -5, -5]
+        """
+        x, (h_n, c_n) = self.stacked_lstm(x)
+
+        if self.bidirectional: 
+            # reverse + move first angle token to last (angle padding)
+            x_b = torch.flip(x.clone(), dims=-2)
+            x_b = torch.cat([
+                x_b[..., :-4],
+                torch.cat([x_b[..., -1:, :], x_b[..., :-1, :]], dim=-2) 
+            ], dim=-1)
+            # predict + merge
+            x_b, (h_n_b, c_n_b) = self.stacked_lstm_b(x_b)
+            x = torch.cat([x, x_b], dim=-2)
+
         return self.last_mlp(x)
 
     def predict_fold(self, x):
         """ Autoregressively generates the protein fold
-            Inputs: (..., Emb_dim) -> Outputs: (..., 4). 
+            Inputs: ((B), L, Emb_dim) -> Outputs: ((B), L, 4). 
+
+            Note: 4 last dims of input is dumb token for first res. 
+                  Use same as in `.forward()` method.
         """
-        raise NotImplementedError
+        # handles batch shape
+        squeeze = len(x.shape) == 2
+        if squeeze: 
+            x = x.unsqueeze(dim=0)
+        x_t = x.transpose(0, 1) # works on length, not batch
 
+        preds_list = []
+        for i in range(x.shape[-2]):
+            if i == 0: 
+                input_step = x[:, i:i+1]
+            else: 
+                # add angle predicton from prev steps as feats.
+                input_step = torch.cat([
+                    x[:, 1:i+1, :-4],               # normal feats
+                    torch.cat(preds_list, dim=-2)   # angles of previous steps
+                ], dim=-1)
+                
+            preds_list.append( self.forward(input_step)[:, -1:] )
 
-# from: https://florianwilhelm.info/2018/08/multiplicative_LSTM_for_sequence_based_recos/
-class mLSTM(RNNBase):
-    def __init__(self, input_size, hidden_size, bias=True):
-        super(mLSTM, self).__init__(
-            mode='LSTM', input_size=input_size, hidden_size=hidden_size,
-                 num_layers=1, bias=bias, batch_first=True,
-                 dropout=0, bidirectional=False)
+        final_pred = torch.cat(preds_list, dim=0).transpose(0,1)
 
-        w_im = torch.Tensor(hidden_size, input_size)
-        w_hm = torch.Tensor(hidden_size, hidden_size)
-        b_im = torch.Tensor(hidden_size)
-        b_hm = torch.Tensor(hidden_size)
-        self.w_im = Parameter(w_im)
-        self.b_im = Parameter(b_im)
-        self.w_hm = Parameter(w_hm)
-        self.b_hm = Parameter(b_hm)
-
-        self.lstm_cell = LSTMCell(input_size, hidden_size, bias)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.hidden_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, input, hx):
-        n_batch, n_seq, n_feat = input.size()
-
-        hx, cx = hx
-        steps = [cx.unsqueeze(1)]
-        for seq in range(n_seq):
-            mx = F.linear(input[:, seq, :], self.w_im, self.b_im) * F.linear(hx, self.w_hm, self.b_hm)
-            hx = (mx, cx)
-            hx, cx = self.lstm_cell(input[:, seq, :], hx)
-            steps.append(cx.unsqueeze(1))
-
-        return torch.cat(steps, dim=1)
+        # re-handles batch shape
+        return final_pred.squeeze() if squeeze else final_pred
 
 
 class Refiner(torch.nn.Module): 
     """ Refines a protein structure by invoking several Rosetta scripts. """
     def __init__(self, **kwargs): 
         return
-
-
 
