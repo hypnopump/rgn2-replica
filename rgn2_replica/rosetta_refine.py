@@ -8,7 +8,7 @@ Example:
     import pyrosetta
     pyrosetta.init("-mute all")
 
-If you need to see Rosetta outputs, remove 'mute all'
+If you need to see Rosetta outputs, remove '-mute all'
 """
 
 
