@@ -1,5 +1,7 @@
 import os
 import torch
+from sidechainnet.utils.sequence import ProteinVocabulary as VOCAB
+VOCAB = VOCAB()
 
 # data loading funcs copied from: 
 # https://github.com/hypnopump/alphafold2/blob/main/alphafold2_pytorch/utils.py#L330
