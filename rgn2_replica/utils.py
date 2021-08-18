@@ -4,6 +4,11 @@ import math
 import torch
 import numpy as np
 
+
+# random hacks - device utils for pyTorch - saves transfers
+to_cpu = lambda x: x.cpu() if x.is_cuda else x
+to_device = lambda x, device: x.to(device) if x.device != device else x
+
 # system-wide utility functions
 
 def set_seed(seed, verbose=False): 
