@@ -61,6 +61,22 @@ class EsmEmbedder(torch.nn.Module):
 
 
 def get_embedder(config, device):
+    """Returns embedding model based on config.embedder_model
+
+    Usage:
+        config.embedder_model = 'clasp'
+        config.emb_dim = 768
+        config.embedder_checkpoint_path = '../clasp/data/run48_2021-07-18_13_31_19_step00005000.pt'
+
+        OR
+
+        config.embedder_model = 'esm1b'
+        config.emb_dim = 1280
+
+        embedder = embedders.get_embedder(config, device)
+
+        embeddings = embedder(aa_seq)
+    """
     if config.embedder_model == 'clasp':
         print('Loading CLASP embedding model')
         emb_model = ClaspEmbedder(config, device)
