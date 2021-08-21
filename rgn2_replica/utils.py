@@ -11,6 +11,20 @@ to_device = lambda x, device: x.to(device) if x.device != device else x
 
 # system-wide utility functions
 
+def expand_dims_to(t, length):
+    """ Expands up to N dimensions. Different from AF2 (inspo drawn):
+    	* Only works for torch Tensors
+    	* Expands to `t`, NOT `adds t dims`
+        https://github.com/lucidrains/alphafold2/blob/main/alphafold2_pytorch/utils.py#L63
+        Ex: 
+        >>> expand_dims_to( torch.eye(8), length = 3) # (1, 8, 8)
+        >>> expand_dims_to( torch.eye(8), length = 1) # (8, 8)
+    """
+    if not length - len(t.shape) > 0:
+        return t
+    return t.reshape(*((1,) * length - len(t.shape)), *t.shape) 
+
+
 def set_seed(seed, verbose=False): 
     try: random.seed(seed)
     except: "Could not set `random` module seed"
