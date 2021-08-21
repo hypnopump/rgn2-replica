@@ -5,42 +5,33 @@ class ClaspEmbedder(torch.nn.Module):
     def __init__(self, config, device):
         super().__init__()
 
-        from clasp import CLASP, Transformer as ClaspTransformer, basic_aa_tokenizer
+        from clasp import Transformer as ClaspTransformer, basic_aa_tokenizer
         self.tokenizer = basic_aa_tokenizer
 
         # TODO: build encoders based on the config
-        self.clasp_model = CLASP(
-            text_encoder = ClaspTransformer(
-                num_tokens = 49408,
-                dim = 768,
-                depth = 12,
-                seq_len = 1024,
-                reversible=True
-            ),
-            bioseq_encoder = ClaspTransformer(
-                num_tokens = 23,
-                dim = 768,
-                depth = 12,
-                seq_len = 512,
-                sparse_attn = False,
-                reversible=True
-            )
+        self.clasp_bioseq_encoder = ClaspTransformer(
+            num_tokens = 23,
+            dim = 768,
+            depth = 12,
+            seq_len = 512,
+            sparse_attn = False,
+            reversible=True
         )
 
-        self.clasp_model.load_state_dict(torch.load(config.embedder_checkpoint_path, map_location=device))
-        self.clasp_model.eval()
+        self.clasp_bioseq_encoder.load_state_dict(torch.load(config.embedder_checkpoint_path, map_location=device))
+        self.clasp_bioseq_encoder.eval()
 
     def forward(self, aa_seq):
         with torch.no_grad():
             tokenized_seq = self.tokenizer(aa_seq, context_length=len(aa_seq), return_mask=False)
-            all_embeddings = self.clasp_model.bioseq_encoder(tokenized_seq.unsqueeze(0), return_all_embeddings=True)
+            all_embeddings = self.clasp_bioseq_encoder(tokenized_seq.unsqueeze(0), return_all_embeddings=True)
 
             # drop CLS embedding, return per-token embeddings only
             return all_embeddings[:, 1:]
 
 
 class EsmEmbedder(torch.nn.Module):
-    def __init__(self, config, device):
+    def __init__(self, device):
         super().__init__()
 
         import esm
@@ -54,7 +45,6 @@ class EsmEmbedder(torch.nn.Module):
         max_seq_len = len(aa_seq)
 
         _, _, batch_tokens = self.batch_converter([(None, aa_seq)])
-        # batch_tokens = batch_tokens.unsqueeze(0)
 
         with torch.no_grad():
             results = self.embedder(batch_tokens.to(self.device), repr_layers=[REPR_LAYER_NUM], return_contacts=False)
@@ -68,13 +58,8 @@ def get_embedder(config, device):
 
     Usage:
         config.embedder_model = 'clasp'
-        config.emb_dim = 768
-        config.embedder_checkpoint_path = '../clasp/data/run48_2021-07-18_13_31_19_step00005000.pt'
-
         OR
-
         config.embedder_model = 'esm1b'
-        config.emb_dim = 1280
 
         embedder = embedders.get_embedder(config, device)
 
@@ -82,9 +67,14 @@ def get_embedder(config, device):
     """
     if config.embedder_model == 'clasp':
         print('Loading CLASP embedding model')
+
+        config.emb_dim = 768
+        config.embedder_checkpoint_path = '../clasp/data/run48_2021-07-18_13_31_19_step00005000.bioseq_encoder.pt'
         emb_model = ClaspEmbedder(config, device)
     else:
-        emb_model = EsmEmbedder(config, device)
         print('Loading ESM-1b embedding model')
+
+        config.emb_dim = 1280
+        emb_model = EsmEmbedder(device)
 
     return emb_model.to(device)
