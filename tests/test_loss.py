@@ -1,5 +1,5 @@
-from rgn2_replica.losses import AminoBERTLoss
 import torch
+from rgn2_replica.losses import AminoBERTLoss
 
 def test_aminobert_loss():
     vocab_size = 24
