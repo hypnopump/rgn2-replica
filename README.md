@@ -8,6 +8,21 @@ To eventually become an unofficial working Pytorch implementation of [RGN2](http
 $ pip install rgn2-replica
 ```
 
+## To load sample dataset
+
+
+```
+from datasets import load_from_disk
+ds = load_from_disk("data/ur90_small")
+print(ds['train'][0])
+```
+To convert to pandas for exploration
+```
+df = ds['train'].to_pandas()
+df.sample(5)
+```
+
+
 ## To train ProteinLM
 
 Run the following command with default parameters
@@ -53,7 +68,7 @@ This will start the run using sample dataset in repo directory on CPU.
 		* [ ] ...
 
 * [ ] Contribute Data Infra for training: 
-	* [ ] Sequences: UniParc sequences, etc
+	* [x] Sequences: UniParc sequences, etc [@gurvindersingh](https://github.com/gurvindersingh)
 	* [x] Structures: will use the amazing [sidechainnet](https://github.com/jonathanking/sidechainnet) work by Jonathan King  
 
 * [ ] Contribute Rosetta Scripts ( contact me by email (ericalcaide1@gmai.com) / [discord](https://discord.gg/VpPpa9EZ) to get a key for Rosetta if interested in doing this part. )

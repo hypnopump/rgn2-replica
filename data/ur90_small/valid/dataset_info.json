@@ -7,17 +7,12 @@
   "download_checksums": null,
   "download_size": null,
   "features": {
-    "id": {
+    "flat_go_annotations": {
       "dtype": "string",
       "id": null,
       "_type": "Value"
     },
-    "sequence": {
-      "dtype": "string",
-      "id": null,
-      "_type": "Value"
-    },
-    "input_ids": {
+    "go_labels": {
       "feature": {
         "dtype": "int64",
         "id": null,
@@ -26,6 +21,46 @@
       "length": -1,
       "id": null,
       "_type": "Sequence"
+    },
+    "id": {
+      "dtype": "string",
+      "id": null,
+      "_type": "Value"
+    },
+    "input_ids": {
+      "feature": {
+        "dtype": "int32",
+        "id": null,
+        "_type": "Value"
+      },
+      "length": -1,
+      "id": null,
+      "_type": "Sequence"
+    },
+    "pfam_ids": {
+      "feature": {
+        "dtype": "string",
+        "id": null,
+        "_type": "Value"
+      },
+      "length": -1,
+      "id": null,
+      "_type": "Sequence"
+    },
+    "pfam_labels": {
+      "feature": {
+        "dtype": "int64",
+        "id": null,
+        "_type": "Value"
+      },
+      "length": -1,
+      "id": null,
+      "_type": "Sequence"
+    },
+    "sequence": {
+      "dtype": "string",
+      "id": null,
+      "_type": "Value"
     }
   },
   "homepage": "",
