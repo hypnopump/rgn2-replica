@@ -8,9 +8,9 @@ class AminoBERTLoss(nn.Module):
     def __init__(self, padding_token=-100, vocab_size=24):
         super().__init__()
         self.masked_loss = nn.CrossEntropyLoss(
-            ignore_index=padding_token, reduction="none"
+            ignore_index=padding_token
         )
-        self.chunk_perm_loss = nn.CrossEntropyLoss(reduction="none")
+        self.chunk_perm_loss = nn.CrossEntropyLoss()
         self.vocab_size = vocab_size
 
     def forward(
@@ -18,7 +18,7 @@ class AminoBERTLoss(nn.Module):
     ):
         """
         logit_out:  (bs, len, vocab_size) tensor
-        logit_chunk_perm: (bs, 2) tensor 
+        logit_chunk_perm: (bs, 2) tensor
         target: (bs, len) tensor
         chunk_perm: (bs, 1)
         """
@@ -26,16 +26,12 @@ class AminoBERTLoss(nn.Module):
         # to do: Check Logic
         global_petrub = 1 - chunk_perm
 
-        masked_lm_loss = (
-            self.masked_loss(logit_out.view(-1, self.vocab_size), target.view(-1))
-            .view(target.shape[0], -1)
-            .mean(1)
-        )
+        masked_lm_loss = self.masked_loss(logit_out.view(-1, self.vocab_size), target.view(-1))
 
         chunk_perm_loss = self.chunk_perm_loss(logit_chunk_perm, chunk_perm)
         loss = (chunk_perm * chunk_perm_loss) + (1 - global_petrub * masked_lm_loss)
 
-        return loss.mean()
+        return loss
 
 
 class GoPFAMLoss(nn.Module):
@@ -55,7 +51,7 @@ class GoPFAMLoss(nn.Module):
         target_go: (bs, go_n_classes)
         target_pfam: (bs, pfam_n_classes)
         """
-        
+
 
         go_loss = self.go_loss(logit_go, target_go)
         pfam_loss = self.pfam_loss(logit_pfam, target_pfam)
