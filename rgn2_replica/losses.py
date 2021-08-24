@@ -45,11 +45,20 @@ class GoPFAMLoss(nn.Module):
         """
         super().__init__()
         self.weights = weights
+        self.go_loss = nn.BCEWithLogitsLoss()
+        self.pfam_loss = nn.BCEWithLogitsLoss()
 
     def forward(self, logit_go=None, logit_pfam=None, target_go=None, target_pfam=None):
+        """
+        logit_go: (bs, go_n_classes)
+        logit_pfam: (bs, pfam_n_classes)
+        target_go: (bs, go_n_classes)
+        target_pfam: (bs, pfam_n_classes)
+        """
+        
 
-        go_loss = F.cross_entropy(logit_go, target_go)
-        pfam_loss = F.cross_entropy(logit_pfam, target_pfam)
+        go_loss = self.go_loss(logit_go, target_go)
+        pfam_loss = self.pfam_loss(logit_pfam, target_pfam)
         combined_loss = go_loss * self.weights[0] + pfam_loss * self.weights[0]
         return combined_loss
 
