@@ -32,8 +32,15 @@ def set_seed(seed, verbose=False):
     try: np.random.seed(seed)
     except: "Could not set `np.random` module seed"
 
-    try: torch.manual_seed(seed)
+    try: 
+        torch.manual_seed(seed)
+        if torch.cuda.is_available(): 
+            torch.cuda.manual_seed(seed)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
     except:"Could not set `torch.manual_seed` module seed"
+
+    
     
     if verbose: 
         print("Seet seed to {0}".format(seed))
