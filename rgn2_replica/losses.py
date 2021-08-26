@@ -41,8 +41,8 @@ class GoPFAMLoss(nn.Module):
         """
         super().__init__()
         self.weights = weights
-        self.go_loss = nn.BCEWithLogitsLoss()
-        self.pfam_loss = nn.BCEWithLogitsLoss()
+        self.go_loss = nn.BCEWithLogitsLoss(reduction="none")
+        self.pfam_loss = nn.BCEWithLogitsLoss(reduction="none")
 
     def forward(self, logit_go=None, logit_pfam=None, target_go=None, target_pfam=None):
         """
@@ -52,10 +52,19 @@ class GoPFAMLoss(nn.Module):
         target_pfam: (bs, pfam_n_classes)
         """
 
+        # When label belongs to class 0 means no label, we ignore the loss
+        go_weights = torch.argmax(target_go, dim=-1).clamp(0,1)
+        pfam_weights = torch.argmax(target_pfam, dim=-1).clamp(0,1)
 
-        go_loss = self.go_loss(logit_go, target_go)
-        pfam_loss = self.pfam_loss(logit_pfam, target_pfam)
-        combined_loss = go_loss * self.weights[0] + pfam_loss * self.weights[0]
+        go_loss = (self.go_loss(logit_go, target_go).mean(dim=-1) * go_weights).sum()
+        pfam_loss = (self.pfam_loss(logit_pfam, target_pfam).mean(dim=-1) * pfam_weights).sum()
+
+        if go_weights.sum() > 0:
+             go_loss = go_loss/go_weights.sum()
+        if pfam_weights.sum() > 0:
+             pfam_loss = pfam_loss/pfam_weights.sum()
+
+        combined_loss = go_loss * self.weights[0] + pfam_loss * self.weights[1]
         return combined_loss
 
 
