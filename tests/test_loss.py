@@ -1,5 +1,5 @@
-from rgn2_replica.losses import AminoBERTLoss
 import torch
+from rgn2_replica.losses import AminoBERTLoss
 
 def test_aminobert_loss():
     vocab_size = 24
@@ -14,12 +14,11 @@ def test_aminobert_loss():
     loss = loss_func(logit_out, logit_chunk_perm, target, chunk_perm)
     assert True
 
-
 def test_go_pfam_loss():
     num_classes = 45
     bs = 40
-    target_pfam = torch.randint(0, num_classes, (bs,))
-    target_go = torch.randint(0, num_classes, (bs,))
+    target_pfam = torch.randint(0, num_classes, (bs, num_classes)).float()
+    target_go = torch.randint(0, num_classes, (bs, num_classes)).float()
     logit_pfam = torch.rand(bs, num_classes)
     logit_go = torch.rand(bs, num_classes)
     weights = [2, 3]
@@ -30,14 +29,13 @@ def test_go_pfam_loss():
         target_go=target_go,
         target_pfam=target_pfam,
     )
-    
     assert True
     
 def test_loss_wrapper():
     num_classes = 45
     bs = 40
-    target_pfam = torch.randint(0, num_classes, (bs,))
-    target_go = torch.randint(0, num_classes, (bs,))
+    target_pfam = torch.randint(0, num_classes, (bs, num_classes)).float()
+    target_go = torch.randint(0, num_classes, (bs, num_classes)).float()
     logit_pfam = torch.rand(bs, num_classes)
     logit_go = torch.rand(bs, num_classes)
     weights = [2, 0.6]

@@ -7,6 +7,7 @@ from transformers import get_linear_schedule_with_warmup
 from x_transformers import Encoder, TransformerWrapper
 from transformers.optimization import AdamW
 
+from .losses import GoPFAMLoss
 from .tokenizer import Tokenizer
 from .dataset import ProteinLMDataModule
 
@@ -14,7 +15,9 @@ from .dataset import ProteinLMDataModule
 class ProteinLMModel(pl.LightningModule):
     def __init__(
         self,
-        vocabSz,
+        vocab_size,
+        pfam_size,
+        go_size,
         lr,
         warmup_steps=2000,
         wd=0.0,
@@ -34,32 +37,50 @@ class ProteinLMModel(pl.LightningModule):
 
         self.save_hyperparameters()
 
-        self.model = TransformerWrapper(
-            num_tokens=vocabSz,
-            max_seq_len=max_len,
-            attn_layers=Encoder(
-                dim=dim,
-                depth=depth,
-                heads=heads,
-                ff_glu=ff_glu,
-                use_rmsnorm=use_rmsnorm,
-                rotary_pos_emb=rotary_pos_emb,
-                ff_dropout=ff_dropout,
-            ),
-        )
+        base_model = TransformerWrapper(
+                        num_tokens=vocab_size,
+                        max_seq_len=max_len,
+                        attn_layers=Encoder(
+                            dim=dim,
+                            depth=depth,
+                            heads=heads,
+                            ff_glu=ff_glu,
+                            use_rmsnorm=use_rmsnorm,
+                            rotary_pos_emb=rotary_pos_emb,
+                            ff_dropout=ff_dropout,
+                        )
+                    )
+        pfam_head = ClassificationHead(dim, pfam_size)
+        go_head = ClassificationHead(dim, go_size)
+
+        self.model = nn.Sequential(
+                        base_model,
+                        go_head,
+                        pfam_head,
+                    )
 
     def forward(self, x):
-        return self.model(x).logits
+        return self.model(x)
 
     def process(self, batch):
-        x, mask, labels = (
+        x, mask, labels, pfam_labels, go_labels = (
             batch["input_ids"],
             batch["attention_mask"].bool(),
             batch["labels"],
+            batch["pfam_labels"],
+            batch["go_labels"],
         )
-        preds = self.model(x, mask=mask)
-        loss_fct = nn.CrossEntropyLoss()
-        return loss_fct(preds.view(-1, self.hparams.vocabSz), labels.view(-1))
+        embs = self.model[0](x, mask=mask, return_embeddings=True)
+        logits_mlm = self.model[0].to_logits(embs)
+        logits_go = self.model[1](embs)
+        logits_pfam = self.model[2](embs)
+        mlm_loss_fct = nn.CrossEntropyLoss()
+        gopfam_loss_fct = GoPFAMLoss()
+        mlm_loss = mlm_loss_fct(logits_mlm.view(-1, self.hparams.vocab_size), labels.view(-1))
+        gopfam_loss = gopfam_loss_fct(logits_go, logits_pfam, go_labels, pfam_labels)
+
+        return mlm_loss + gopfam_loss
+
 
     def training_step(self, batch, batch_idx):
         loss = self.process(batch)
@@ -130,3 +151,15 @@ class ProteinLMModel(pl.LightningModule):
         )
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return [optimizer], [scheduler]
+
+class ClassificationHead(nn.Module):
+    def __init__(self, inpDim, outDim, dropoutProb=0.1):
+        super().__init__()
+        self.dropout = nn.Dropout(dropoutProb)
+        self.cls = nn.Linear(inpDim, outDim)
+
+    def forward(self, states):
+        x = states[:, 0, :]  # take <s> token (equiv. to [CLS])
+        x = self.dropout(x)
+        x = self.cls(x)
+        return x

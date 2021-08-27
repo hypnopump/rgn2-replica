@@ -17,16 +17,18 @@ def parse_arguments():
     parser.add_argument("--gpus", default=0, help="Number of gpus to train on", type=int)
     parser.add_argument("--precision", default=32, help="Percision for training 16 or 32", type=int)
     parser.add_argument("--max_len", default=512, help="Maximum length per sequence", type=int)
+    parser.add_argument("--pfam_size", default=4928, help="Total number of unique PFAM families in dataset", type=int)
+    parser.add_argument("--go_size", default=11567, help="Total number of unique Go annotations in dataset", type=int)
     parser.add_argument("--epochs", default=10, help="Number of epochs", type=int)
     parser.add_argument("--bsize", default=16, help="Batch size per GPU", type=int)
     parser.add_argument("--lr", default=2e-4, help="Learning rate", type=float)
-    
+
     return parser.parse_args()
 
 def train(args):
-    data = ProteinLMDataModule(args.ds, max_len=args.max_len)
+    data = ProteinLMDataModule(args.ds, args.pfam_size, args.go_size, max_len=args.max_len)
     tokenizer = Tokenizer()
-    model = ProteinLMModel(len(tokenizer.index), args.lr, max_len=args.max_len, bsize=args.bsize)
+    model = ProteinLMModel(len(tokenizer.index), args.pfam_size, args.go_size, args.lr, max_len=args.max_len, bsize=args.bsize)
     os.makedirs(args.output_dir, exist_ok=True)
     pl.seed_everything(42)
     wandb_logger = WandbLogger(project="ProteinLM")
