@@ -26,7 +26,9 @@ setup(
     'datasets>=1.10',
     'transformers>=4.2',
     'x-transformers>=0.16.1',
-    'pytorch-lightning>=1.4'
+    'pytorch-lightning>=1.4',
+    'wandb',
+    'fair-esm>=0.4.0'
   ],
   setup_requires=[
     'pytest-runner',
