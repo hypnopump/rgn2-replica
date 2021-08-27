@@ -7,6 +7,7 @@ class ClaspEmbedder(torch.nn.Module):
 
         from clasp import Transformer as ClaspTransformer, basic_aa_tokenizer
         self.tokenizer = basic_aa_tokenizer
+        self.device = device
 
         # TODO: build encoders based on the config
         self.clasp_bioseq_encoder = ClaspTransformer(
@@ -24,7 +25,7 @@ class ClaspEmbedder(torch.nn.Module):
     def forward(self, aa_seq):
         with torch.no_grad():
             tokenized_seq = self.tokenizer(aa_seq, context_length=len(aa_seq), return_mask=False)
-            all_embeddings = self.clasp_bioseq_encoder(tokenized_seq.unsqueeze(0), return_all_embeddings=True)
+            all_embeddings = self.clasp_bioseq_encoder(tokenized_seq.unsqueeze(0).to(self.device), return_all_embeddings=True)
 
             # drop CLS embedding, return per-token embeddings only
             return all_embeddings[:, 1:]
