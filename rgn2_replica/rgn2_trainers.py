@@ -11,6 +11,8 @@ from functools import partial
 
 import mp_nerf
 from rgn2_replica.utils import *
+from rgn2_replica.rgn2_utils import *
+
 
 
 def batched_inference(*args, model, embedder, mode="test", device="cpu",
