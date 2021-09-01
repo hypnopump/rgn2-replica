@@ -1,6 +1,10 @@
-import os
-import torch
+import re
 from sidechainnet.utils.sequence import ProteinVocabulary as VOCAB
+
+# random hacks - device utils for pyTorch - saves transfers
+to_cpu = lambda x: x.cpu() if x.is_cuda else x
+to_device = lambda x, device: x.to(device) if x.device != device else x
+
 VOCAB = VOCAB()
 
 # data loading funcs copied from: 
@@ -28,6 +32,7 @@ def ids_to_embed_input(x):
 
     return out
 
+
 def get_esm_embedd(seq, embedd_model, batch_converter, msa_data=None):
     """ Returns the ESM embeddings for a protein.
         Inputs:
@@ -38,14 +43,14 @@ def get_esm_embedd(seq, embedd_model, batch_converter, msa_data=None):
             * embedd_dim: number of embedding dimensions. 1280 for ESM-1b
     """
     # use ESM transformer
-    device = seq.device
+    device = next(embedd_model.parameters()).device
     REPR_LAYER_NUM = 33
     max_seq_len = seq.shape[-1]
-    embedd_inputs = ids_to_embed_input(seq.cpu().tolist())
+    embedd_inputs = ids_to_embed_input( to_cpu(seq).tolist() )
 
     batch_labels, batch_strs, batch_tokens = batch_converter(embedd_inputs)
     with torch.no_grad():
-        results = embedd_model(batch_tokens.to(device), repr_layers=[REPR_LAYER_NUM], return_contacts=False)
+        results = embedd_model( to_device(batch_tokens, device), repr_layers=[REPR_LAYER_NUM], return_contacts=False )
     # index 0 is for start token. so take from 1 one
     token_reps = results["representations"][REPR_LAYER_NUM][..., 1:max_seq_len+1, :]
-    return token_reps
+    return token_reps.detach()
