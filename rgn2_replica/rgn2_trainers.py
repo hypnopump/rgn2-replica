@@ -13,6 +13,14 @@ import mp_nerf
 from rgn2_replica.utils import *
 from rgn2_replica.rgn2_utils import *
 
+# logging
+WANDB = True
+try: 
+    import wandb
+except: 
+    WANDB = False
+    print("Failed to import wandb. LOGGING NOT AVAILABLE")
+
 
 
 def batched_inference(*args, model, embedder, batch_converter=None,
@@ -341,7 +349,7 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
 
             # record
             metrics_list.append( log_dict )
-            if wandbai:
+            if wandbai and WANDB:
                 wandb.log(metrics_list[-1])
 
             if return_preds: 
@@ -449,7 +457,7 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
             # record
             log_dict["loss"] = loss.item() - prev_loss
             metrics_list.append( log_dict )
-            if wandbai:
+            if wandbai and WANDB:
                 wandb.log(metrics_list[-1])
 
             
