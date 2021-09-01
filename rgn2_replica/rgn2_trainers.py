@@ -15,8 +15,8 @@ from rgn2_replica.rgn2_utils import *
 
 
 
-def batched_inference(*args, model, embedder, mode="test", device="cpu",
-                             recycle_func=lambda x: 1):
+def batched_inference(*args, model, embedder, batch_converter=None,
+                             mode="test", device="cpu", recycle_func=lambda x: 1):
     """ Inputs: 
         * args: iterable of outputs from mp_nerf.utils.get_prot()
                 ( seq, int_seq, true_coords, angles, padding_seq, mask, pid )
@@ -155,8 +155,8 @@ def batched_inference(*args, model, embedder, mode="test", device="cpu",
     )
 
 
-def inference(*args, model, embedder, mode="train", device="cpu",
-                     recycle_func=lambda x: 1):
+def inference(*args, model, embedder, batch_converter=None, 
+                     mode="train", device="cpu", recycle_func=lambda x: 1):
     """ Inputs: 
         * args: output from mp_nerf.utils.get_prot()
         * model: torch.nn.Module / extension. model to do inference on
