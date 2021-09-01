@@ -270,7 +270,7 @@ def inference(*args, model, embedder, batch_converter=None,
     }
 
 
-def predict(get_prot_, steps, model, embedder, return_preds=True,
+def predict(get_prot_, steps, model, embedder, batch_converter=None, return_preds=True,
          accumulate_every=1, log_every=None, seed=None, wandbai=False, 
          recycle_func=lambda x: 1, mode="test"):
     """ Performs a batch prediction. 
@@ -309,8 +309,8 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
             prots = [ next(get_prot_) for i in range(accumulate_every) ]
             infer_batch = batched_inference(
                 *prots, 
-                model=model, embedder=embedder, mode=mode, 
-                device=device, recycle_func=recycle_func
+                model=model, embedder=embedder, batch_converter=batch_converter, 
+                mode=mode, device=device, recycle_func=recycle_func
             )
         # calculate metrics
         for infer in infer_batch: 
@@ -373,8 +373,8 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
     return preds_list, metrics_list, metrics_stats
 
 
-def train(get_prot_, steps, model, embedder, optim, loss_f=None, clip=None, 
-          accumulate_every=1, log_every=None, seed=None, wandbai=False, 
+def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f=None, 
+          clip=None, accumulate_every=1, log_every=None, seed=None, wandbai=False, 
           recycle_func=lambda x: 1): 
     """ Performs a batch prediction. 
         Can return whole list of preds or just metrics.
@@ -409,8 +409,8 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None, clip=None,
         prots = [ next(get_prot_) for i in range(accumulate_every) ]
         infer_batch = batched_inference(
             *prots, 
-            model=model, embedder=embedder, mode="train", 
-            device=device, recycle_func=recycle_func
+            model=model, embedder=embedder, batch_converter=batch_converter, 
+            mode="train", device=device, recycle_func=recycle_func
         )
 
         # calculate metrics
