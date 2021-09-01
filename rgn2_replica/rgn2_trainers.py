@@ -466,8 +466,8 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
         (loss/accumulate_every).mean().backward() # retain_graph=True
         if clip: 
             torch.nn.utils.clip_grad_norm_(model.parameters(), clip) 
-        optimizer.step()
-        optimizer.zero_grad()
+        optim.step()
+        optim.zero_grad()
         loss = 0.
 
         # log
