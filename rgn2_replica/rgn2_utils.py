@@ -1,4 +1,5 @@
 import re
+import torch
 from sidechainnet.utils.sequence import ProteinVocabulary as VOCAB
 
 # random hacks - device utils for pyTorch - saves transfers
