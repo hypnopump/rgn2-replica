@@ -299,10 +299,6 @@ class RGN2_Naive(torch.nn.Module):
             self.register_parameter("angles", self.angs)
 
 
-        # init forget gates to open
-        self.apply(self.init_)
-
-
     def forward(self, x:torch.Tensor, mask: Optional[torch.Tensor] = None,
                      recycle:int = 1, inter_recycle:bool = False): 
         """ Inputs:
