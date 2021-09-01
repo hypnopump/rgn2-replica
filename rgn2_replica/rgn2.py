@@ -55,7 +55,6 @@ class LSTM(torch.nn.modules.rnn.RNNBase):
 
         self.num_layers = num_layers
         self.batch_first = batch_first
-        self.peephole = peephole
 
         self.lstm_cell = torch.nn.modules.rnn.LSTMCell(input_size, hidden_size, bias)
         self.reset_parameters()
@@ -138,7 +137,6 @@ class RGN2_Transformer(torch.nn.Module):
         act_types = {
             "relu": torch.nn.ReLU, 
             "silu": torch.nn.SiLU,
-            "aconc": AconC, 
         }
         # store params
         self.embedding_dim = embedding_dim
@@ -159,7 +157,7 @@ class RGN2_Transformer(torch.nn.Module):
         )
         self.last_mlp = torch.nn.Sequential(
             torch.nn.Linear(self.hidden[-1], self.mlp_hidden[0]),
-            act_types[act]() if act != "aconc" else act_types[act](width=self.mlp_hidden[0]),
+            act_types[act](),
             torch.nn.Linear(self.mlp_hidden[0], self.mlp_hidden[-1]) 
         )
 
@@ -277,8 +275,8 @@ class RGN2_Naive(torch.nn.Module):
                 ) for i in range(layers) 
             ])
 
-        # jit-COMPILE if mLSTM or custom LSTM
-        if isinstance(self.stacked_lstm_f, mLSTM) or isinstance(self.stacked_lstm_f, LSTM):
+        # jit-COMPILE if custom LSTM
+        if isinstance(self.stacked_lstm_f, LSTM):
             self.stacked_lstm_f = torch.nn.ModuleList([
                 torch.jit.script(self.stacked_lstm_f[i]) for i in range(self.num_layers)
             ])
