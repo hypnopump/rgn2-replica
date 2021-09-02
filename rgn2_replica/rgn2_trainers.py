@@ -87,7 +87,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     
     embedds = torch.cat([
         embedds, 
-        torch.zeros_like(angles_input), # don't pass angles info
+        angles_input, # torch.zeros_like # don't pass angles info
     ], dim=-1)
     
     # PREDICT
@@ -216,7 +216,7 @@ def inference(*args, model, embedder, batch_converter=None,
     
     embedds = torch.cat([
         embedds, 
-        torch.zeros_like(angles_input), # don't pass angles info
+        angles_input, # torch.zeros_like( # don't pass angles info
     ], dim=-1)
     
     if mode == "train": 
