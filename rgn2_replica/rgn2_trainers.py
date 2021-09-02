@@ -122,7 +122,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
             points_preds.shape[0], -1, 4
         )
     ) 
-    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    # ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
 
     # get frames for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
@@ -244,7 +244,7 @@ def inference(*args, model, embedder, batch_converter=None,
     ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
         (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(1, -1, 4)
     ) 
-    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    # ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
 
     # get frames for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
