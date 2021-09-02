@@ -4,8 +4,16 @@
       "filename": "dataset.arrow"
     }
   ],
-  "_fingerprint": "bd8269441654726f",
-  "_format_columns": null,
+  "_fingerprint": "7d3d58ac344cd41a",
+  "_format_columns": [
+    "flat_go_annotations",
+    "go_labels",
+    "id",
+    "input_ids",
+    "pfam_ids",
+    "pfam_labels",
+    "sequence"
+  ],
   "_format_kwargs": {},
   "_format_type": null,
   "_indexes": {},

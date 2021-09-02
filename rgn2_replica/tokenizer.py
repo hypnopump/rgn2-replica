@@ -12,13 +12,13 @@ class Tokenizer(PreTrainedTokenizer):
         base_index = {aa:i for i,aa in enumerate(self.ALPHABETS)}
         ext_index = {k: i for k,i in zip(self.SPLTOKENS, list(range(len(self.ALPHABETS),len(self.ALPHABETS)+len(ext_tokens)))) }
         self.index = {**base_index, **ext_index}
-        self.cls_token = '<mask>'
+        self.cls_token = '<cls>'
         self.mask_token = '<mask>'
-        self._pad_token = '<mask>'
+        self._pad_token = '<pad>'
         self.padding_side = 'right'
         self.name_or_path = 'ProteinSeqTokenizer'
 
-        
+
     def __len__(self):
         return len(self.index)
 
@@ -32,7 +32,7 @@ class Tokenizer(PreTrainedTokenizer):
         Returns: Tokenized sequence
 
         To tokenize the dataset run the code as
-        >>> from datasets load_from_disk
+        >>> from datasets import load_from_disk
         >>> ds = load_from_disk('path_to_dataset')
         >>> tok = Tokenizer()
         >>> ds = ds.map(tok.tokenize, num_proc=4)
@@ -40,10 +40,10 @@ class Tokenizer(PreTrainedTokenizer):
         """
         r['input_ids'] = [self.convert_tokens_to_ids(self.cls_token)]+self.convert_tokens_to_ids(list(r['sequence']))
         return r
-    
+
     def get_special_tokens_mask(self, token_ids, already_has_special_tokens=False):
         return [1] + [0] * (len(token_ids)-1)
-    
+
     def convert_tokens_to_ids(self, tokens):
         if isinstance(tokens, str):
             return self.index[tokens]
