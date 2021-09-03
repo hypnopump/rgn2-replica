@@ -32,21 +32,18 @@ class DataCollatorForSpanPermutationLM:
         # Handle dict or lists with proper padding and conversion to tensor.
         if isinstance(batch[0], (dict, BatchEncoding)):
             batch = self.tokenizer.pad(batch, return_tensors="pt", pad_to_multiple_of=self.pad_to_multiple_of)
-            # make sure padded labels set to -100
         else:
             raise NotImplementedError('Not implemented')
 
         # if special token mask has been preprocessed, pop it from the dict
         special_tokens_masks = batch.pop("special_tokens_mask", None)
         mask_token_id = self.tokenizer.convert_tokens_to_ids(self.tokenizer.mask_token)
-        
+
         batch_inputs = batch["input_ids"]
         batch_labels = batch["labels"] = batch_inputs.clone()
 
-        for i in range(len(batch_inputs)):
+        for i, (inputs, labels) in enumerate(zip(batch_inputs, batch_labels)):
             p = random.random()
-            inputs = batch_inputs[i]
-            labels = batch_labels[i]
 
             if special_tokens_masks is None:
                 special_tokens_mask = self.tokenizer.get_special_tokens_mask(labels, already_has_special_tokens=True)
@@ -58,7 +55,7 @@ class DataCollatorForSpanPermutationLM:
                 inputs = self.span_masking(inputs, special_tokens_mask, mask_token_id)
             #  35% of the remaining 30% will go through chunk permutation
             if p < 0.35 * 0.3:
-                continue # not working yet
+                continue  # not working yet
                 inputs = self.chunk_permutation(inputs, special_tokens_mask, mask_token_id)
 
             labels[inputs != mask_token_id] = -100  # we only compute loss on masked tokens
@@ -67,9 +64,9 @@ class DataCollatorForSpanPermutationLM:
             batch_labels[i] = labels
 
         return batch
-    
-    def span_masking(self, inputs, special_tokens_mask, mask_token_id, 
-        num_masks_ratio=.15, span_len_range=(2, 8), single_word_mask_proba=.7):
+
+    def span_masking(self, inputs, special_tokens_mask, mask_token_id,
+                     num_masks_ratio=.15, span_len_range=(2, 8), single_word_mask_proba=.7):
         """With probability of `single_word_mask_proba` will generate single-token masks.
         Otherwise will generate masks of random size within the range of `span_len_range`.
         Num of masks is `seq_len * num_masks_ratio`
@@ -97,7 +94,6 @@ class DataCollatorForSpanPermutationLM:
                 break
 
         return inputs
-    
+
     def chunk_permutation(self):
         raise NotImplementedError('chunk_permutation is not implemented yet')
-
