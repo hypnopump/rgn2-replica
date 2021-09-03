@@ -3,10 +3,11 @@
 import pytorch_lightning as pl
 from datasets import load_from_disk
 from .tokenizer import Tokenizer
-from transformers import DataCollatorForLanguageModeling
+from .data_collators import DataCollatorForSpanPermutationLM
 import torch
 from torch.utils.data.dataloader import DataLoader
 from sklearn.preprocessing import MultiLabelBinarizer
+
 
 class ProteinLMDataset():
     def __init__(self, ds, pfam_size, go_size, max_len=1024, columns=['input_ids','pfam_labels','go_labels']):
@@ -53,7 +54,9 @@ class ProteinLMDataModule(pl.LightningDataModule):
         self.ds = load_from_disk(ds_path)
         self.columns = columns
         tok = Tokenizer()
-        self.data_collator = DataCollatorForLanguageModeling(
+        
+        # self.data_collator = DataCollatorForLanguageModeling(
+        self.data_collator = DataCollatorForSpanPermutationLM(
             tokenizer=tok,
             mlm_probability=mlm_probability,
             pad_to_multiple_of=pad_to_multiple_of,
