@@ -1,6 +1,7 @@
 # Author: Gurvinder Singh (@gurvindersingh)
 
 from transformers import  PreTrainedTokenizer
+import numpy as np
 
 class Tokenizer(PreTrainedTokenizer):
     # Taken from mp_nerf and extended based on ESM
@@ -42,7 +43,10 @@ class Tokenizer(PreTrainedTokenizer):
         return r
 
     def get_special_tokens_mask(self, token_ids, already_has_special_tokens=False):
-        return [1] + [0] * (len(token_ids)-1)
+        mask = np.zeros(len(token_ids), dtype=int)
+        mask[0] = 1 # <cls>
+        mask[np.array(token_ids) == self.index[self._pad_token]] = 1
+        return mask
 
     def convert_tokens_to_ids(self, tokens):
         if isinstance(tokens, str):
