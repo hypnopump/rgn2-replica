@@ -42,7 +42,7 @@ This will start the run using sample dataset in repo directory on CPU.
 		    * [x] ~~Inputs (B, L, emb_dim)~~
 		    * [x] ~~Outputs (B, L, 4) (4 features which should be outputs of linear projections)~~
 	* [ ] Find a good (and reproducible) training scheme
-	* [ ] Benchmark regression vs classification of torsional alphabet
+	* [x] ~Benchmark regression vs classification of torsional alphabet~
 * [ ] **Language Model**: 
 	* [x] ~~basic tokenizer~~ by [@gurvindersingh](https://github.com/gurvindersingh)
 	* [x] ~~basic architecture~~ by [@gurvindersingh](https://github.com/gurvindersingh)
