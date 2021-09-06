@@ -58,7 +58,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     # calc angle labels
     angles_label_ = torch.zeros(*ca_trace.shape[:-1], 2, dtype=torch.float, device=device)
     for i, arg in enumerate(args): 
-        length = int_seq[i].shape[-1]
+        length = len(arg[1])
         angles_label_[i, 1:length-1, 0] = mp_nerf.utils.get_cosine_angle( 
             ca_trace[i, :length-2 , :], 
             ca_trace[i, 1:length-1, :],
