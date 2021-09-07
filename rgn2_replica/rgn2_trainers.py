@@ -111,9 +111,8 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     
     # POST-PROCESS
     # restate first values to known ones (1st angle, 1s + 2nd dihedral)
-    # TODO: test for possible in-place mods
-    points_preds[:, 0, :] = points_preds[:, 0, :]*0 + points_input[:, 0, :]
-    points_preds[:, 1, 1] = points_preds[:, 1, 1]*0 + points_input[:, 1, 1]
+    points_preds[:, 0, :] = points_input[:, 0, :]
+    points_preds[:, 1, 1] = points_input[:, 1, 1]
 
     # apply norm before reconstruction - ensure they're unit vectors  # (B, L, 14, 3)
     ca_trace_pred = torch.zeros_like(coords)                   
