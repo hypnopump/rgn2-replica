@@ -58,7 +58,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     # calc angle labels
     angles_label_ = torch.zeros(*ca_trace.shape[:-1], 2, dtype=torch.float, device=device)
     for i, arg in enumerate(args): 
-        length = int_seq[i].shape[-1]
+        length = arg[1].shape[-1]
         angles_label_[i, 1:length-1, 0] = mp_nerf.utils.get_cosine_angle( 
             ca_trace[i, :length-2 , :], 
             ca_trace[i, 1:length-1, :],
@@ -111,9 +111,8 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     
     # POST-PROCESS
     # restate first values to known ones (1st angle, 1s + 2nd dihedral)
-    # TODO: test for possible in-place mods
-    points_preds[:, 0, :] = points_preds[:, 0, :]*0 + points_input[:, 1, :]
-    points_preds[:, 1, 1] = points_preds[:, 1, 1]*0 + points_input[:, 1, 1]
+    points_preds[:, 0, :] = points_input[:, 0, :]
+    points_preds[:, 1, 1] = points_input[:, 1, 1]
 
     # apply norm before reconstruction - ensure they're unit vectors  # (B, L, 14, 3)
     ca_trace_pred = torch.zeros_like(coords)                   
@@ -236,7 +235,7 @@ def inference(*args, model, embedder, batch_converter=None,
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
 
     # restate first values to known ones (1st angle, 1s + 2nd dihedral)
-    points_preds[:, 0, :] = points_preds[:, 0, :]*0 + points_input[:, 1, :]
+    points_preds[:, 0, :] = points_preds[:, 0, :]*0 + points_input[:, 0, :]
     points_preds[:, 1, 1] = points_preds[:, 1, 1]*0 + points_input[:, 1, 1]
 
     # apply norm before reconstruction - ensure they're unit vectors  # (B, L, 14, 3)                      

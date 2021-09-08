@@ -29,7 +29,7 @@ def ids_to_embed_input(x):
             raise TypeError('type must be either list or character')
 
     if all(map(lambda c: isinstance(c, str), out)):
-        return (None, ''.join(out))
+        return (None, ''.join(out).replace("_", ""))
 
     return out
 

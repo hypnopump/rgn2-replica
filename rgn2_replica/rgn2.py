@@ -338,10 +338,9 @@ class RGN2_Naive(torch.nn.Module):
                         x_b[l, :length] = torch.flip(x_b[l, :length], dims=(-2,))
                     # move first angle token to last (angle padding) if l=0
                     if k == 0:
-                        x_0 = x_b[ torch.arange(x.shape[0]), seq_lens-1, -4:] # angles of first AA
-                        x_0 = x_0.reshape(x.shape[0], -1) # makes a copy (?) # ensure
+                        x_0 = x_b[ torch.arange(x.shape[0]), seq_lens-1, -4:].clone() # padding tok
                         x_b[..., 1:, -4:] = x_b[..., :-1, -4:] 
-                        x_b[..., 0, -4:] = x_0
+                        x_b[ torch.arange(x.shape[0]), 0, -4:] = x_0
 
                     # back pass
                     x_b, (h_n_b, c_n_b) = self.stacked_lstm_b[k]( 
