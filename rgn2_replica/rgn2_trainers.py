@@ -46,14 +46,14 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     true_coords = torch.zeros(int_seq.shape[0], int_seq.shape[1]*14, 3, device=device)
     # fill scaffolds
     for i,arg in enumerate(args): 
-        mask[i, :arg[-2].shape[-1]] = arg[-2]
+        mask[i, :arg[1].shape[-1]] = arg[-2]
         int_seq[i, :arg[1].shape[-1]] = arg[1]
         true_coords[i, :arg[1].shape[-1]*14] = arg[2]
     
     mask = mask.bool().to(device)
     coords = rearrange(true_coords, 'b (l c) d -> b l c d', c=14)
     ca_trace = coords[..., 1, :]
-    coords_rebuilt = mp_nerf.proteins.ca_bb_fold( ca_trace ) 
+    coords_rebuilt = mp_nerf.proteins.ca_bb_fold( ca_trace ) # beware extremes
 
     # calc angle labels
     angles_label_ = torch.zeros(*ca_trace.shape[:-1], 2, dtype=torch.float, device=device)
@@ -87,7 +87,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     
     embedds = torch.cat([
         embedds, 
-        angles_input, # torch.zeros_like # don't pass angles info
+        0*angles_input, # torch.zeros_like # don't pass angles info
     ], dim=-1)
     
     # PREDICT
@@ -102,9 +102,6 @@ def batched_inference(*args, model, embedder, batch_converter=None,
         embedds[:, :, -4:] = embedds[:, :, -4:] * 0. # zero out angle features
         preds, r_iters = model.forward(embedds, mask=mask,
                                        recycle=recycle_func(None))     # , inter_recycle=True
-        
-    # discard last point
-    preds = torch.cat([preds[:, :1, :], preds[:, :-1, :]], dim=-2)
 
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
     
@@ -115,17 +112,17 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     points_preds[:, 1, 1] = points_input[:, 1, 1]
 
     # apply norm before reconstruction - ensure they're unit vectors  # (B, L, 14, 3)
-    ca_trace_pred = torch.zeros_like(coords)                   
+    ca_trace_pred = torch.zeros_like(coords)              
     ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
         (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(
             points_preds.shape[0], -1, 4
         )
     ) 
-    # ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
 
     # get frames for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
-        points_label.reshape(points_preds.shape[0], -1, 4) # (B, L, 2, 2) -> (B, L, 4)
+        points_label.reshape(points_label.shape[0], -1, 4) # (B, L, 2, 2) -> (B, L, 4)
     ) 
     
     # calc BB - can't do batched bc relies on extremes.
@@ -229,9 +226,6 @@ def inference(*args, model, embedder, batch_converter=None,
         preds, r_iters = model.forward(embedds, mask=mask,
                                        recycle=recycle_func(None))     # , inter_recycle=True
         
-    # discard last point
-    preds = torch.cat([preds[:, :1, :], preds[:, :-1, :]], dim=-2)
-        
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
 
     # restate first values to known ones (1st angle, 1s + 2nd dihedral)
@@ -243,7 +237,7 @@ def inference(*args, model, embedder, batch_converter=None,
     ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
         (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(1, -1, 4)
     ) 
-    # ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
 
     # get frames for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
