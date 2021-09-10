@@ -55,3 +55,17 @@ def get_esm_embedd(seq, embedd_model, batch_converter, msa_data=None):
     # index 0 is for start token. so take from 1 one
     token_reps = results["representations"][REPR_LAYER_NUM][..., 1:max_seq_len+1, :]
     return token_reps.detach()
+
+
+def seqs_from_fasta(fasta_file): 
+    """ Reads protein sequences from FASTA files. """
+    seqs = []
+    with open(fasta_file, "r") as f: 
+        lines = f.readlines()
+        for line in lines: 
+            if line[0] not in {">", ";"}: 
+                seqs.append( line.replace("\n", "") )
+
+    return [re.sub(r'[^a-zA-Z]','', seq).upper() for seq in seqs]
+
+

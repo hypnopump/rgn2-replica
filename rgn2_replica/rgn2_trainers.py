@@ -486,6 +486,82 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
     return metrics_list, metrics_stats
 
 
+#############################
+## MAKING REAL PREDICTIONS ##
+#############################
 
+def infer_from_seqs(seq_list, model, embedder, batch_converter, 
+                    recycle_func=lambda x: 10, device="cpu"): 
+    """ Infers structures for a sequence of proteins. 
+        Inputs: 
+        * seq_list: list of str. Protein sequences in FASTA format
+        * model: torch.nn.Module pytorch model
+        * embedder: torch.nn.Module pytorch model. 
+        * batch_converter: function to prepare input tokens for the embedder. 
+        * recycle_func: func -> int. number of recycling iterations. a lower value 
+            makes prediction faster. Past 10, improvement is marginal.
+        * device: str or torch.device. Device for inference. CPU is slow. 
+        Outputs: dict of
+        * coords: list of torch.FloatTensor. Each of shape (L, 14, 3)
+        * int_seq: list of torch.LongTensor. Each of shape (L, )
+    """
+    batch_dim = len(seq_list)
+    lengths = [len(x) for x in seq_list]
+    max_seq_len = max(lengths)
+    # group in batch
+    int_seq = torch.zeros(batch_dim, max_seq_len, dtype=torch.long)
+    for i, seq in enumerate(seq_list): 
+        int_seq[i, :lengths[i]] = torch.tensor([ 
+            mp_nerf.kb_proteins.AAS2INDEX[aa] for aa in seq 
+        ])
+    int_seq = int_seq.to(device)
+
+    # get embeddings
+    embedds = get_esm_embedd(int_seq, embedd_model=embedder, batch_converter=batch_converter)
+    embedds = torch.cat([embedds, torch.zeros_like(embedds[..., -4:])], dim=-1)
+    # pred
+    with torch.no_grad(): 
+        preds, r_iters = model.forward(embedds, mask=None, recycle=recycle_func(None))  
+    points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
+    
+    # POST-PROCESS
+    # restate first values to known ones (1st angle, 1s + 2nd dihedral)
+    points_preds[:, 0, [0, 1], 1] = 1.
+    points_preds[:, 0, [0, 1], 0] = 0.
+    points_preds[:, 1, 1, 1] = 1.
+    points_preds[:, 1, 1, 0] = 0.
+
+    # apply norm before reconstruction - ensure they're unit vectors  # (B, L, 14, 3)
+    ca_trace_pred = torch.zeros(batch_dim, max_seq_len, 14, 3, device=device)              
+    ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
+        (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(
+            points_preds.shape[0], -1, 4
+        )
+    ) 
+    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    
+    # calc BB - can't do batched bc relies on extremes.
+    wrapper_pred = torch.zeros_like(ca_trace_pred)
+    for i in range(int_seq.shape[0]):
+        wrapper_pred[i, :lengths[i]] = mp_nerf.proteins.ca_bb_fold( 
+            ca_trace_pred[i:i+1, :lengths[i], 1] 
+        )
+
+        # build sidechains
+        scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
+        wrapper_pred[i, :lengths[i]], _ = mp_nerf.proteins.sidechain_fold(
+            wrapper_pred[i, :lengths[i]], **scaffolds, c_beta="backbone"
+        )
+
+    return {
+        # (L, 14, 3)
+        "coords": [ wrapper_pred[i, :lengths[i]] for i in range(batch_dim) ], 
+        # (L, )
+        "int_seq": [ int_seq[i, :lengths[i]] for i in range(batch_dim) ],
+        # (L, 2, 2)
+        "points_preds": [ points_preds[i:i+1, :lengths[i]] for i in range(batch_dim) ],
+        # (L, 3, 3)
+        "frames_preds": [ frames_preds[i, :lengths[i]] for i in range(batch_dim)] ,
+    }
 
 
