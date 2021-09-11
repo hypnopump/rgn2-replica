@@ -12,6 +12,7 @@ import esm
 import sidechainnet
 import mp_nerf
 from rgn2_replica import *
+from rgn2_replica.rosetta_refine import *
 from rgn2_replica.utils import seqs_from_fasta
 from rgn2_trainers import infer_from_seqs
 
@@ -24,7 +25,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=1, help="batch size for prediction")
     # model
     parser.add_argument("--model", type=str, help="Model file for prediction")
-    parser.add_argument("--rosetta_refine", type=bool, default=0, help="refine output with Rosetta")
+    parser.add_argument("--rosetta_refine", type=int, default=0, help="refine output with Rosetta. 0 for no refinement")
+    parser.add_argument("--rosetta_relax", type=int, default=0, help="relax output with Rosetta. 0 for no relax.")
     parser.add_argument("--recycle", default=10, help="Recycling iterations")
     parser.add_argument("--device", default=None, help="CUDA device number. None for CPU (slow!)")
     # outputs
@@ -94,5 +96,23 @@ if __name__ == "__main__":
         import pyrosetta
 
         for i, seq in enumerate(seq_list): 
-            raise NotImplementedError("This function is not ready yet")
+            # only refine
+            if args.rosetta_relax == 0: 
+                quick_refine(
+                    in_pdb = out_files[i],
+                    out_pdb = out_files[i][:-4]+"_refined_relaxed.pdb",
+                    min_iter = args.rosetta_refine
+                )
+            # refine and relax
+            else:
+                relax_refine(
+                    out_files[i], 
+                    out_pdb=out_files[i][:-4]+"_refined_relaxed.pdb", 
+                    min_iter = args.rosetta_refine, 
+                    relax_iter = args.rosetta_relax
+                )
+            print(out_files[i], "was refined successfully")
+
+    print("All tasks done. Exiting...")
+
 
