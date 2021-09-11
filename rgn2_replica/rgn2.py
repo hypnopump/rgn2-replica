@@ -29,10 +29,10 @@ def prediction_wrapper(x: torch.Tensor, pred: torch.Tensor):
         Outputs: (B, L, Emb_dim)
     """
     # ensure preds' first values
-    preds[:, 0, [0, 2]] = 0.
-    preds[:, 0, [1, 3]] = 1.
-    preds[:, 1, 2] = 0.
-    preds[:, 1, 3] = 1.
+    pred[:, 0, [0, 2]] = 0.
+    pred[:, 0, [1, 3]] = 1.
+    pred[:, 1, 2] = 0.
+    pred[:, 1, 3] = 1.
     # refill x with preds
     x_ = x.clone()
     x_[:, :-1, -pred.shape[-1]:] = pred.detach()
