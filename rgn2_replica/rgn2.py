@@ -62,7 +62,7 @@ def pred_post_process(points_preds: torch.Tensor,
     points_preds[:, 1, 1, 0] = 0.
     
     # rebuild ca trace with angles - norm vectors to ensure mod=1. - (B, L, 14, 3)
-    ca_trace_pred = torch.zeros(points_preds.shape[-2], 14, 3, device=device)              
+    ca_trace_pred = torch.zeros(points_preds.shape[:-2], 14, 3, device=device)              
     ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
         (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(
             points_preds.shape[0], -1, 4
