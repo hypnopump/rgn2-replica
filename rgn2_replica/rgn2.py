@@ -28,9 +28,62 @@ def prediction_wrapper(x: torch.Tensor, pred: torch.Tensor):
         * pred: (B, L, pred_dim)
         Outputs: (B, L, Emb_dim)
     """
+    # ensure preds' first values
+    preds[:, 0, [0, 2]] = 0.
+    preds[:, 0, [1, 3]] = 1.
+    preds[:, 1, 2] = 0.
+    preds[:, 1, 3] = 1.
+    # refill x with preds
     x_ = x.clone()
     x_[:, 1:, -pred.shape[-1]:] = pred.detach()
     return x_
+
+
+def pred_post_process(points_preds: torch.Tensor, 
+                      seq_list: Optional[List] = None,
+                      mask: Optional[torch.Tensor] = None):
+    """ Converts an angle-based output to structures. 
+        Inputs:
+        * points_preds: (B, L, 2, 2)
+        * seq_list: (B,) list of str. FASTA sequences. Optional. build scns
+        * mask: (B, L) bool tensor. 
+        Outputs: 
+        * ca_trace_pred: (B, L, 14, 3)
+        * frames_preds: (B, L, 3, 3)
+        * wrapper_pred: (B, L, 14, 3)
+    """
+    device = points_preds.device
+    if mask is None:
+        mask = torch.ones(points_preds.shape[:-2], dtype=torch.bool)
+    # restate first values to known ones (1st angle, 1s + 2nd dihedral)
+    points_preds[:, 0, [0, 1], 1] = 1.
+    points_preds[:, 0, [0, 1], 0] = 0.
+    points_preds[:, 1, 1, 1] = 1.
+    points_preds[:, 1, 1, 0] = 0.
+    
+    # rebuild ca trace with angles - norm vectors to ensure mod=1. - (B, L, 14, 3)
+    ca_trace_pred = torch.zeros(pooints_preds.shape[-2], 14, 3, device=device)              
+    ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
+        (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(
+            points_preds.shape[0], -1, 4
+        )
+    ) 
+    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    
+    # calc BB - can't do batched bc relies on extremes.
+    wrapper_pred = torch.zeros_like(ca_trace_pred)
+    for i in range(points_preds.shape[0]):
+        wrapper_pred[i, mask[i]] = mp_nerf.proteins.ca_bb_fold( 
+            ca_trace_pred[i:i+1, mask[i], 1] 
+        )
+        if seq_list is not None: 
+            # build sidechains
+            scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
+            wrapper_pred[i, mask[i]], _ = mp_nerf.proteins.sidechain_fold(
+                wrapper_pred[i, mask[i]], **scaffolds, c_beta="backbone"
+            )
+
+    return points_preds, ca_trace_pred, frames_preds, wrapper_pred
 
 
 # adapt LSTM to batch api

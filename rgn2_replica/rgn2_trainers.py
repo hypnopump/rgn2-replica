@@ -87,7 +87,8 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     
     embedds = torch.cat([
         embedds, 
-        0*angles_input, # torch.zeros_like # don't pass angles info
+        # don't pass angles info - just 0 at start (sin=0, cos=1)
+        angles_input*0 + points_label[:, 0].reshape(-1, 4), 
     ], dim=-1)
     
     # PREDICT
@@ -105,32 +106,16 @@ def batched_inference(*args, model, embedder, batch_converter=None,
 
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
     
-    
     # POST-PROCESS
-    # restate first values to known ones (1st angle, 1s + 2nd dihedral)
-    points_preds[:, 0, :] = points_input[:, 0, :]
-    points_preds[:, 1, 1] = points_input[:, 1, 1]
-
-    # apply norm before reconstruction - ensure they're unit vectors  # (B, L, 14, 3)
-    ca_trace_pred = torch.zeros_like(coords)              
-    ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
-        (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(
-            points_preds.shape[0], -1, 4
-        )
-    ) 
-    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    points_preds, ca_trace_pred, frames_preds, wrapper_pred = rgn2_replica.rgn2.pred_post_process(
+        points_preds, mask=mask 
+    )
 
     # get frames for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
         points_label.reshape(points_label.shape[0], -1, 4) # (B, L, 2, 2) -> (B, L, 4)
     ) 
     
-    # calc BB - can't do batched bc relies on extremes.
-    wrapper_pred = torch.zeros_like(ca_trace_pred)
-    for i in range(int_seq.shape[0]):
-        wrapper_pred[i, mask[i]] = mp_nerf.proteins.ca_bb_fold( 
-            ca_trace_pred[i:i+1, mask[i], 1] 
-        )
 
     return (
         {
@@ -212,7 +197,8 @@ def inference(*args, model, embedder, batch_converter=None,
     
     embedds = torch.cat([
         embedds, 
-        angles_input, # torch.zeros_like( # don't pass angles info
+        # don't pass angles info - just 0 at start (sin=0, cos=1)
+        angles_input*0 + points_label[:, 0].reshape(-1, 4), 
     ], dim=-1)
     
     if mode == "train": 
@@ -228,24 +214,16 @@ def inference(*args, model, embedder, batch_converter=None,
         
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
 
-    # restate first values to known ones (1st angle, 1s + 2nd dihedral)
-    points_preds[:, 0, :] = points_preds[:, 0, :]*0 + points_input[:, 0, :]
-    points_preds[:, 1, 1] = points_preds[:, 1, 1]*0 + points_input[:, 1, 1]
-
-    # apply norm before reconstruction - ensure they're unit vectors  # (B, L, 14, 3)                      
-    ca_trace_pred = torch.zeros_like(coords)                   
-    ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
-        (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(1, -1, 4)
-    ) 
-    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    # post-process
+    points_preds, ca_trace_pred, frames_preds, wrapper_pred = rgn2_replica.rgn2.pred_post_process(
+        points_preds, mask=mask 
+    )
 
     # get frames for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
         points_label.reshape(1, -1, 4) # (B, L, 2, 2) -> (B, L, 4)
     ) 
 
-    # calc BB and reverse if chiral, select ca trace again.
-    wrapper_pred = mp_nerf.proteins.ca_bb_fold( ca_trace_pred[:, :, 1] ) 
 
     return {
         "seq": seq,
@@ -508,50 +486,32 @@ def infer_from_seqs(seq_list, model, embedder, batch_converter,
     batch_dim = len(seq_list)
     lengths = [len(x) for x in seq_list]
     max_seq_len = max(lengths)
-    # group in batch
-    int_seq = torch.zeros(batch_dim, max_seq_len, dtype=torch.long)
+    # group in batch - init tokens to padding tok
+    int_seq = torch.ones(batch_dim, max_seq_len, dtype=torch.long)*21
     for i, seq in enumerate(seq_list): 
         int_seq[i, :lengths[i]] = torch.tensor([ 
             mp_nerf.kb_proteins.AAS2INDEX[aa] for aa in seq 
         ])
     int_seq = int_seq.to(device)
+    mask = int_seq != 21 # tokens to predict
 
     # get embeddings
     embedds = get_esm_embedd(int_seq, embedd_model=embedder, batch_converter=batch_converter)
-    embedds = torch.cat([embedds, torch.zeros_like(embedds[..., -4:])], dim=-1)
+    embedds = torch.cat([
+        embedds, 
+        torch.zeros_like(embedds[..., -4:])
+    ], dim=-1)
+    # don't pass angles info - just 0 at start (sin=0, cos=1)
+    embedds[:, :, [1, 3]] = 1.
     # pred
     with torch.no_grad(): 
         preds, r_iters = model.forward(embedds, mask=None, recycle=recycle_func(None))  
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
     
     # POST-PROCESS
-    # restate first values to known ones (1st angle, 1s + 2nd dihedral)
-    points_preds[:, 0, [0, 1], 1] = 1.
-    points_preds[:, 0, [0, 1], 0] = 0.
-    points_preds[:, 1, 1, 1] = 1.
-    points_preds[:, 1, 1, 0] = 0.
-
-    # apply norm before reconstruction - ensure they're unit vectors  # (B, L, 14, 3)
-    ca_trace_pred = torch.zeros(batch_dim, max_seq_len, 14, 3, device=device)              
-    ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
-        (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(
-            points_preds.shape[0], -1, 4
-        )
-    ) 
-    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
-    
-    # calc BB - can't do batched bc relies on extremes.
-    wrapper_pred = torch.zeros_like(ca_trace_pred)
-    for i in range(int_seq.shape[0]):
-        wrapper_pred[i, :lengths[i]] = mp_nerf.proteins.ca_bb_fold( 
-            ca_trace_pred[i:i+1, :lengths[i], 1] 
-        )
-
-        # build sidechains
-        scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
-        wrapper_pred[i, :lengths[i]], _ = mp_nerf.proteins.sidechain_fold(
-            wrapper_pred[i, :lengths[i]], **scaffolds, c_beta="backbone"
-        )
+    points_preds, ca_trace_pred, frames_preds, wrapper_pred = rgn2_replica.rgn2.pred_post_process(
+        points_preds, seq_list=seq_list, mask=mask
+    )
 
     return {
         # (L, 14, 3)
