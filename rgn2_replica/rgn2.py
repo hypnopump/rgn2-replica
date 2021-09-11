@@ -1,7 +1,7 @@
 # Author: Eric Alcaide ( @hypnopump ) 
 import os
 import sys
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 # science
 import numpy as np
 # ML
