@@ -10,6 +10,7 @@ from einops import rearrange, repeat
 from functools import partial
 
 import mp_nerf
+from rgn2_replica.rgn2 import *
 from rgn2_replica.utils import *
 from rgn2_replica.rgn2_utils import *
 
@@ -107,7 +108,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
     
     # POST-PROCESS
-    points_preds, ca_trace_pred, frames_preds, wrapper_pred = rgn2_replica.rgn2.pred_post_process(
+    points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
         points_preds, mask=mask 
     )
 
@@ -215,7 +216,7 @@ def inference(*args, model, embedder, batch_converter=None,
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
 
     # post-process
-    points_preds, ca_trace_pred, frames_preds, wrapper_pred = rgn2_replica.rgn2.pred_post_process(
+    points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
         points_preds, mask=mask 
     )
 
@@ -509,7 +510,7 @@ def infer_from_seqs(seq_list, model, embedder, batch_converter,
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
     
     # POST-PROCESS
-    points_preds, ca_trace_pred, frames_preds, wrapper_pred = rgn2_replica.rgn2.pred_post_process(
+    points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
         points_preds, seq_list=seq_list, mask=mask
     )
 
