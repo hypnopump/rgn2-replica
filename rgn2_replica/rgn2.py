@@ -35,7 +35,7 @@ def prediction_wrapper(x: torch.Tensor, pred: torch.Tensor):
     preds[:, 1, 3] = 1.
     # refill x with preds
     x_ = x.clone()
-    x_[:, 1:, -pred.shape[-1]:] = pred.detach()
+    x_[:, :-1, -pred.shape[-1]:] = pred.detach()
     return x_
 
 
@@ -389,11 +389,6 @@ class RGN2_Naive(torch.nn.Module):
                     x_b = x_pred.clone()
                     for l, length in enumerate(seq_lens): 
                         x_b[l, :length] = torch.flip(x_b[l, :length], dims=(-2,))
-                    # move first angle token to last (angle padding) if l=0
-                    if k == 0:
-                        x_0 = x_b[ torch.arange(x.shape[0]), seq_lens-1, -4:].clone() # padding tok
-                        x_b[..., 1:, -4:] = x_b[..., :-1, -4:] 
-                        x_b[ torch.arange(x.shape[0]), 0, -4:] = x_0
 
                     # back pass
                     x_b, (h_n_b, c_n_b) = self.stacked_lstm_b[k]( 
