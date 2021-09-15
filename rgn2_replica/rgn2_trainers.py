@@ -301,11 +301,10 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
             )
 
             # violation loss btween calphas - L1
-            dist_mat = torch.cdist(infer["wrapper_pred"][:, :, 1], 
-                                   infer["wrapper_pred"][:, :, 1],) + \
-                       torch.eye(infer["wrapper_pred"][0, :, 1].shape[0], 
-                                 device=device).unsqueeze(0) * 5
-            viol_loss = -torch.minimum(dist_mat - 3.75, torch.zeros_like(dist_mat)) 
+            dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
+                                           infer["wrapper_pred"][:, :, 1],) # B, L, L
+            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = 5.
+            viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.) 
             
             # calc metrics
             log_dict = {
@@ -403,11 +402,10 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
             )
 
             # violation loss btween calphas - L1
-            dist_mat = torch.cdist(infer["wrapper_pred"][:, :, 1], 
-                                   infer["wrapper_pred"][:, :, 1],) + \
-                       torch.eye(infer["wrapper_pred"][0, :, 1].shape[0], 
-                                 device=device).unsqueeze(0) * 5
-            viol_loss = -torch.minimum(dist_mat - 3.78, torch.zeros_like(dist_mat)) 
+            dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
+                                           infer["wrapper_pred"][:, :, 1],) # B, L, L
+            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = 5.
+            viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.) 
             
             # calc metrics
             log_dict = {
