@@ -127,7 +127,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
             "angles": arg[2],
             "padding_seq": arg[3],
             "mask": arg[4],
-            "long_mask": long_mask[i]
+            "long_mask": long_mask[i],
             "pid": arg[5],
             # labels
             "true_coords": true_coords[i:i+1, :arg[1].shape[-1]*14], # (1, (L C), 3)

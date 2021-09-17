@@ -126,6 +126,9 @@ def relax_refine(in_pdb: str, out_pdb: Optional[str] = None, min_iter: int = 100
     pose.dump_pdb(out_pdb)
 
 
+# TODO: ADD AF2 REFINE/RELAX STEP: 
+# https://github.com/sokrypton/ColabFold/blob/main/beta/AlphaFold2_advanced_beta.ipynb
+
 
 if __name__ == "__main__": 
     parser = argparse.ArgumentParser()
