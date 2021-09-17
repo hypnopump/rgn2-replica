@@ -43,11 +43,13 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     max_seq_len = max(x[1].shape[-1] for x in args) 
     # create scaffolds
     int_seq = torch.ones(batch_dim, max_seq_len, dtype=torch.long) * 20 # padding tok
-    mask = torch.zeros(*int_seq.shape, dtype=torch.bool)
+    # mask is true mask. long mask is for lstm
+    mask, long_mask = torch.zeros(2, *int_seq.shape, dtype=torch.bool)
     true_coords = torch.zeros(int_seq.shape[0], int_seq.shape[1]*14, 3, device=device)
     # fill scaffolds
     for i,arg in enumerate(args): 
         mask[i, :arg[1].shape[-1]] = arg[-2]
+        long_mask[i, :arg[1].shape[-1]] = True
         int_seq[i, :arg[1].shape[-1]] = arg[1]
         true_coords[i, :arg[1].shape[-1]*14] = arg[2]
     
@@ -89,27 +91,27 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     embedds = torch.cat([
         embedds, 
         # don't pass angles info - just 0 at start (sin=0, cos=1)
-        angles_input*0 + angles_input[:, :1],
+        torch.zeros_like(angles_input) + angles_input[:, :1],
     ], dim=-1)
     
     # PREDICT
     if mode == "train": 
         # get angles
-        preds, r_iters = model.forward(embedds, mask=mask,
+        preds, r_iters = model.forward(embedds, mask=long_mask,
                                        recycle=recycle_func(None))      # (B, L, 4)
     elif mode == "test": 
-        preds, r_iters = model.predict_fold(embedds, mask=mask,
+        preds, r_iters = model.predict_fold(embedds, mask=long_mask,
                                             recycle=recycle_func(None)) # (B, L, 4)   
     elif mode == "fast_test":  
         embedds[:, :, -4:] = embedds[:, :, -4:] * 0. # zero out angle features
-        preds, r_iters = model.forward(embedds, mask=mask,
+        preds, r_iters = model.forward(embedds, mask=long_mask,
                                        recycle=recycle_func(None))     # , inter_recycle=True
 
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
     
     # POST-PROCESS
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-        points_preds, mask=mask 
+        points_preds, mask=long_mask 
     )
 
     # get frames for for later fape
@@ -125,6 +127,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
             "angles": arg[2],
             "padding_seq": arg[3],
             "mask": arg[4],
+            "long_mask": long_mask[i]
             "pid": arg[5],
             # labels
             "true_coords": true_coords[i:i+1, :arg[1].shape[-1]*14], # (1, (L C), 3)
@@ -163,6 +166,7 @@ def inference(*args, model, embedder, batch_converter=None,
 
     int_seq = int_seq.unsqueeze(0)
     mask = mask.bool().to(device)
+    long_mask = torch.ones_like(mask)
     coords = rearrange(true_coords, '(l c) d -> () l c d', c=14).to(device)
     ca_trace = coords[..., 1, :]
     coords_rebuilt = mp_nerf.proteins.ca_bb_fold( ca_trace ) 
@@ -199,25 +203,25 @@ def inference(*args, model, embedder, batch_converter=None,
     embedds = torch.cat([
         embedds, 
         # don't pass angles info - just 0 at start (sin=0, cos=1)
-        angles_input*0 + angles_input[:, :1], 
+        torch.zeros_like(angles_input) + angles_input[:, :1], 
     ], dim=-1)
     
     if mode == "train": 
-        preds, r_iters = model.forward(embedds, mask=mask,
+        preds, r_iters = model.forward(embedds, mask=long_mask,
                                        recycle=recycle_func(None))       # (B, L, 4)
     elif mode == "test": 
-        preds, r_iters = model.predict_fold(embedds, mask=mask,
+        preds, r_iters = model.predict_fold(embedds, mask=long_mask,
                                             recycle=recycle_func(None))  # (B, L, 4)
     elif mode == "fast_test": 
         embedds[:, :, -4:] = embedds[:, :, -4:] * 0. # zero out angle features
-        preds, r_iters = model.forward(embedds, mask=mask,
+        preds, r_iters = model.forward(embedds, mask=long_mask,
                                        recycle=recycle_func(None))     # , inter_recycle=True
         
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
 
     # post-process
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-        points_preds, mask=mask 
+        points_preds, mask=long_mask 
     )
 
     # get frames for for later fape
@@ -232,6 +236,7 @@ def inference(*args, model, embedder, batch_converter=None,
         "angles": angles,
         "padding_seq": padding_seq,
         "mask": mask,
+        "long_mask": mask, 
         "pid": pid, 
         # labels
         "true_coords": true_coords,  # (B, (L C), 3)
@@ -312,7 +317,9 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
                 "viol_loss": viol_loss.mean().item()           
             }
             metrics = mp_nerf.proteins.get_protein_metrics(
-                true_coords=infer["coords"], pred_coords=infer["wrapper_pred"], detach=True
+                true_coords=infer["coords"][:, infer["mask"]],
+                pred_coords=infer["ca_trace_pred"][:, infer["mask"]],
+                detach=True
             )
             log_dict.update({
                 k:v.mean().item() for k,v in metrics.items() if "wrap" not in k
@@ -413,7 +420,9 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
                 "viol_loss": viol_loss.mean().item()           
             }
             metrics = mp_nerf.proteins.get_protein_metrics(
-                true_coords=infer["coords"], pred_coords=infer["wrapper_pred"], detach=False
+                true_coords=infer["coords"][:, infer["mask"]],
+                pred_coords=infer["ca_trace_pred"][:, infer["mask"]],
+                detach=False
             )
             log_dict.update({k:v.mean().item() for k,v in metrics.items() if "wrap" not in k})
 

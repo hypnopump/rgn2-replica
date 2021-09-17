@@ -109,15 +109,15 @@ def relax_refine(in_pdb: str, out_pdb: Optional[str] = None, min_iter: int = 100
     pose = pyrosetta.pose_from_pdb(in_pdb)
 
     # Create movers
-    # cst_mover = pyrosetta.rosetta.protocols.relax.AtomCoordinateCstMover()
-    # cst_mover.cst_sidechain(False)
+    cst_mover = pyrosetta.rosetta.protocols.relax.AtomCoordinateCstMover()
+    cst_mover.cst_sidechain(False)
     min_mover = get_fa_min_mover(min_iter)
     relax_mover = get_fa_relax_mover(relax_iter)
     idealize_mover = pyrosetta.rosetta.protocols.idealize.IdealizeMover()
 
     # Refine structure
-    # cst_mover.apply(pose)
-    # min_mover.apply(pose)
+    cst_mover.apply(pose)
+    min_mover.apply(pose)
     relax_mover.apply(pose)
     min_mover.apply(pose)
     idealize_mover.apply(pose)
@@ -125,17 +125,28 @@ def relax_refine(in_pdb: str, out_pdb: Optional[str] = None, min_iter: int = 100
     # Save refined structure to PDB
     pose.dump_pdb(out_pdb)
 
-relax_refine("downloads/proteins_0.pdb", "downloads/proteins_0_refined.pdb", min_iter=100, relax_iter=300)
 
 
 if __name__ == "__main__": 
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", help="protein file")
     parser.add_argument("--output", help="protein file for output", default=None)
-    parser.add_argument("--relax_iters", help="relaxation iterations", default=None)
+    parser.add_argument("--relax_iters", help="energy minimization iterations", default=100)
+    parser.add_argument("--relax_iters", help="relaxation iterations", default=300)
     parser.add_argument("--mess", help="message to print before attempt")
     args = parser.parse_args()
     if args.output is None: 
         args.output = args.input.replace(".pdb", "_refined.pdb")
 
-    relax_refine(args.input, args.output, min_iter=args.min_iters, relax_iter=args.relax_iters)
+    pyrosetta.init("-mute all")
+    relax_refine(
+        args.input, 
+        args.output, 
+        min_iter=args.min_iters, 
+        relax_iter=args.relax_iters
+    )
+    print("All done")
+
+
+
+
