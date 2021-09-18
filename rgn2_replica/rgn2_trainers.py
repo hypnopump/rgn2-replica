@@ -60,6 +60,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
 
     # calc angle labels
     angles_label_ = torch.zeros(*ca_trace.shape[:-1], 2, dtype=torch.float, device=device)
+    angles_mask_ = torch.zeros_like(angles_label_).bool() # propagate mask to angles w/ missing points
     for i, arg in enumerate(args): 
         length = arg[1].shape[-1]
         angles_label_[i, 1:length-1, 0] = mp_nerf.utils.get_cosine_angle( 
@@ -73,6 +74,15 @@ def batched_inference(*args, model, embedder, batch_converter=None,
             ca_trace[i, 2:length-1, :],
             ca_trace[i, 3:length  , :],
         ) 
+        angles_mask_[i, 1:length-1, 0] = (
+            mask[i, :length-2] * mask[i, 1:length-1] * mask[i, 2:length]
+        )
+        angles_mask_[i, 2:length-1, 0] = (
+            mask[i, :length-3] * mask[i, 1:length-2] * mask[i, 2:length-1], mask[i, 3:length]
+        )
+    # replace nan and (angles whose coords are not known) by 0.
+    angles_label_[angles_label_ != angles_label_] = 0.
+    angles_label_[~angles_mask] = 0.
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
     # include angles of previous AA as input
@@ -126,14 +136,15 @@ def batched_inference(*args, model, embedder, batch_converter=None,
             "int_seq": arg[1], 
             "angles": arg[2],
             "padding_seq": arg[3],
-            "mask": arg[4],
+            "mask": arg[4].bool(),
             "long_mask": long_mask[i, :arg[1].shape[-1]],
             "pid": arg[5],
             # labels
             "true_coords": true_coords[i:i+1, :arg[1].shape[-1]*14], # (1, (L C), 3)
             "coords": coords[i:i+1, :arg[1].shape[-1]],              # (1, L, C, 3)
             "ca_trace": ca_trace[i:i+1, :arg[1].shape[-1]],          # (1, L, 3)
-            "points_label": points_label[i:i+1, :arg[1].shape[-1]],  # (1, L, 4)
+            "angles_label": angles_label_[i:i+1, :arg[1].shape[-1]] # (1, L, 2)
+            "points_label": points_label[i:i+1, :arg[1].shape[-1]],  # (1, L, 2, 2)
             "frames_labels": frames_labels[i, :arg[1].shape[-1]],    # (L, 3, 3)
             # inputs
             "points_input": angles_input[i:i+1, :arg[1].shape[-1]],  # (1, L, 4)
@@ -171,9 +182,8 @@ def inference(*args, model, embedder, batch_converter=None,
     ca_trace = coords[..., 1, :]
     coords_rebuilt = mp_nerf.proteins.ca_bb_fold( ca_trace ) 
     # mask for thetas and chis
-    angles_mask = torch.ones(*ca_trace.shape[:-1], 2, dtype=torch.bool, device=device)
-    angles_mask[..., 1:-1, :] = False
     angles_label_ = torch.zeros(*ca_trace.shape[:-1], 2, dtype=torch.float, device=device)
+    angles_mask_ = torch.zeros_like(angles_label_).bool()
     angles_label_[..., 1:-1, 0] = mp_nerf.utils.get_cosine_angle( 
         ca_trace[..., :-2 , :], 
         ca_trace[..., 1:-1, :],
@@ -185,6 +195,15 @@ def inference(*args, model, embedder, batch_converter=None,
         ca_trace[..., 2:-1, :],
         ca_trace[..., 3:  , :],
     ) 
+    angles_mask_[..., 1:-1, 0] = (
+        mask[i, :-2] * mask[i, 1:-1] * mask[i, 2:]
+    )
+    angles_mask_[i, 2:-1, 0] = (
+        mask[i, :-3] * mask[i, 1:-2] * mask[i, 2:-1], mask[i, 3:]
+    )
+    # replace nan and (angles whose coords are not known) by 0.
+    angles_label_[angles_label_ != angles_label_] = 0.
+    angles_label_[~angles_mask] = 0.
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
     # include angles of previous AA as input
@@ -242,6 +261,7 @@ def inference(*args, model, embedder, batch_converter=None,
         "true_coords": true_coords,  # (B, (L C), 3)
         "coords": coords,            # (B, L, C, 3)
         "ca_trace": ca_trace, 
+        "angles_label": angles_label_,  # (L, 2)
         "points_label": points_label,
         "frames_labels": frames_labels, # (L, 3, 3)
         # inputs
@@ -297,12 +317,13 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
                 model=model, embedder=embedder, batch_converter=batch_converter, 
                 mode=mode, device=device, recycle_func=recycle_func
             )
-        # calculate metrics
+        # calculate metrics || calc loss terms || baselines for next-term: torsion=2, fape=0.95
         for infer in infer_batch: 
-            # calc loss terms || baselines for next-term: torsion=2, fape=0.95
+            # discard fully planar angles (result of unknown coord or padding)
+            # angle_mask = infer["angles_label"] != 0.
             torsion_loss = mp_nerf.ml_utils.torsion_angle_loss(
-                pred_points=infer["points_preds"][:, :-1], # (B, L-2, 2, 2) 
-                true_points=infer["points_label"][:, :-1], # (B, L-2, 2, 2)
+                pred_points=infer["points_preds"][:, :-1], # (B, L-2, 2, 2) if all are known
+                true_points=infer["points_label"][:, :-1], # (B, L-2, 2, 2) if all are known
             )
 
             # violation loss btween calphas - L1
