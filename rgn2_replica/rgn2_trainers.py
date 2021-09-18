@@ -10,6 +10,7 @@ from einops import rearrange, repeat
 from functools import partial
 
 import mp_nerf
+from rgn2_replica.rgn2 import *
 from rgn2_replica.utils import *
 from rgn2_replica.rgn2_utils import *
 
@@ -42,21 +43,24 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     max_seq_len = max(x[1].shape[-1] for x in args) 
     # create scaffolds
     int_seq = torch.ones(batch_dim, max_seq_len, dtype=torch.long) * 20 # padding tok
-    mask = torch.zeros(*int_seq.shape, dtype=torch.bool)
+    # mask is true mask. long mask is for lstm
+    mask, long_mask = torch.zeros(2, *int_seq.shape, dtype=torch.bool)
     true_coords = torch.zeros(int_seq.shape[0], int_seq.shape[1]*14, 3, device=device)
     # fill scaffolds
     for i,arg in enumerate(args): 
-        mask[i, :arg[-2].shape[-1]] = arg[-2]
+        mask[i, :arg[1].shape[-1]] = arg[-2]
+        long_mask[i, :arg[1].shape[-1]] = True
         int_seq[i, :arg[1].shape[-1]] = arg[1]
         true_coords[i, :arg[1].shape[-1]*14] = arg[2]
     
     mask = mask.bool().to(device)
     coords = rearrange(true_coords, 'b (l c) d -> b l c d', c=14)
     ca_trace = coords[..., 1, :]
-    coords_rebuilt = mp_nerf.proteins.ca_bb_fold( ca_trace ) 
+    coords_rebuilt = mp_nerf.proteins.ca_bb_fold( ca_trace ) # beware extremes
 
     # calc angle labels
     angles_label_ = torch.zeros(*ca_trace.shape[:-1], 2, dtype=torch.float, device=device)
+    angles_mask_ = torch.zeros_like(angles_label_).bool() # propagate mask to angles w/ missing points
     for i, arg in enumerate(args): 
         length = arg[1].shape[-1]
         angles_label_[i, 1:length-1, 0] = mp_nerf.utils.get_cosine_angle( 
@@ -70,6 +74,14 @@ def batched_inference(*args, model, embedder, batch_converter=None,
             ca_trace[i, 2:length-1, :],
             ca_trace[i, 3:length  , :],
         ) 
+        angles_mask_[i, 1:length-1, 0] = (
+            mask[i, :length-2] * mask[i, 1:length-1] * mask[i, 2:length]
+        )
+        angles_mask_[i, 2:length-1, 0] = (
+            mask[i, :length-3] * mask[i, 1:length-2] * mask[i, 2:length-1], mask[i, 3:length]
+        )
+    # replace nan and (angles whose coords are not fully known) by 0.
+    angles_label_[~angles_mask] = 0.
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
     # include angles of previous AA as input
@@ -87,53 +99,35 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     
     embedds = torch.cat([
         embedds, 
-        angles_input, # torch.zeros_like # don't pass angles info
+        # don't pass angles info - just 0 at start (sin=0, cos=1)
+        torch.zeros_like(angles_input) + angles_input[:, :1],
     ], dim=-1)
     
     # PREDICT
     if mode == "train": 
         # get angles
-        preds, r_iters = model.forward(embedds, mask=mask,
+        preds, r_iters = model.forward(embedds, mask=long_mask,
                                        recycle=recycle_func(None))      # (B, L, 4)
     elif mode == "test": 
-        preds, r_iters = model.predict_fold(embedds, mask=mask,
+        preds, r_iters = model.predict_fold(embedds, mask=long_mask,
                                             recycle=recycle_func(None)) # (B, L, 4)   
     elif mode == "fast_test":  
         embedds[:, :, -4:] = embedds[:, :, -4:] * 0. # zero out angle features
-        preds, r_iters = model.forward(embedds, mask=mask,
+        preds, r_iters = model.forward(embedds, mask=long_mask,
                                        recycle=recycle_func(None))     # , inter_recycle=True
-        
-    # discard last point
-    preds = torch.cat([preds[:, :1, :], preds[:, :-1, :]], dim=-2)
 
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
     
-    
     # POST-PROCESS
-    # restate first values to known ones (1st angle, 1s + 2nd dihedral)
-    points_preds[:, 0, :] = points_input[:, 0, :]
-    points_preds[:, 1, 1] = points_input[:, 1, 1]
-
-    # apply norm before reconstruction - ensure they're unit vectors  # (B, L, 14, 3)
-    ca_trace_pred = torch.zeros_like(coords)                   
-    ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
-        (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(
-            points_preds.shape[0], -1, 4
-        )
-    ) 
-    # ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
+        points_preds, mask=long_mask 
+    )
 
     # get frames for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
-        points_label.reshape(points_preds.shape[0], -1, 4) # (B, L, 2, 2) -> (B, L, 4)
+        points_label.reshape(points_label.shape[0], -1, 4) # (B, L, 2, 2) -> (B, L, 4)
     ) 
     
-    # calc BB - can't do batched bc relies on extremes.
-    wrapper_pred = torch.zeros_like(ca_trace_pred)
-    for i in range(int_seq.shape[0]):
-        wrapper_pred[i, mask[i]] = mp_nerf.proteins.ca_bb_fold( 
-            ca_trace_pred[i:i+1, mask[i], 1] 
-        )
 
     return (
         {
@@ -141,13 +135,15 @@ def batched_inference(*args, model, embedder, batch_converter=None,
             "int_seq": arg[1], 
             "angles": arg[2],
             "padding_seq": arg[3],
-            "mask": arg[4],
+            "mask": arg[4].bool(),
+            "long_mask": long_mask[i, :arg[1].shape[-1]],
             "pid": arg[5],
             # labels
             "true_coords": true_coords[i:i+1, :arg[1].shape[-1]*14], # (1, (L C), 3)
             "coords": coords[i:i+1, :arg[1].shape[-1]],              # (1, L, C, 3)
             "ca_trace": ca_trace[i:i+1, :arg[1].shape[-1]],          # (1, L, 3)
-            "points_label": points_label[i:i+1, :arg[1].shape[-1]],  # (1, L, 4)
+            "angles_label": angles_label_[i:i+1, :arg[1].shape[-1]] # (1, L, 2)
+            "points_label": points_label[i:i+1, :arg[1].shape[-1]],  # (1, L, 2, 2)
             "frames_labels": frames_labels[i, :arg[1].shape[-1]],    # (L, 3, 3)
             # inputs
             "points_input": angles_input[i:i+1, :arg[1].shape[-1]],  # (1, L, 4)
@@ -180,13 +176,13 @@ def inference(*args, model, embedder, batch_converter=None,
 
     int_seq = int_seq.unsqueeze(0)
     mask = mask.bool().to(device)
+    long_mask = torch.ones_like(mask)
     coords = rearrange(true_coords, '(l c) d -> () l c d', c=14).to(device)
     ca_trace = coords[..., 1, :]
     coords_rebuilt = mp_nerf.proteins.ca_bb_fold( ca_trace ) 
     # mask for thetas and chis
-    angles_mask = torch.ones(*ca_trace.shape[:-1], 2, dtype=torch.bool, device=device)
-    angles_mask[..., 1:-1, :] = False
     angles_label_ = torch.zeros(*ca_trace.shape[:-1], 2, dtype=torch.float, device=device)
+    angles_mask_ = torch.zeros_like(angles_label_).bool()
     angles_label_[..., 1:-1, 0] = mp_nerf.utils.get_cosine_angle( 
         ca_trace[..., :-2 , :], 
         ca_trace[..., 1:-1, :],
@@ -198,6 +194,14 @@ def inference(*args, model, embedder, batch_converter=None,
         ca_trace[..., 2:-1, :],
         ca_trace[..., 3:  , :],
     ) 
+    angles_mask_[..., 1:-1, 0] = (
+        mask[i, :-2] * mask[i, 1:-1] * mask[i, 2:]
+    )
+    angles_mask_[i, 2:-1, 0] = (
+        mask[i, :-3] * mask[i, 1:-2] * mask[i, 2:-1], mask[i, 3:]
+    )
+    # replace nan and (angles whose coords are not fully known) by 0.
+    angles_label_[~angles_mask] = 0.
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
     # include angles of previous AA as input
@@ -215,43 +219,33 @@ def inference(*args, model, embedder, batch_converter=None,
     
     embedds = torch.cat([
         embedds, 
-        angles_input, # torch.zeros_like( # don't pass angles info
+        # don't pass angles info - just 0 at start (sin=0, cos=1)
+        torch.zeros_like(angles_input) + angles_input[:, :1], 
     ], dim=-1)
     
     if mode == "train": 
-        preds, r_iters = model.forward(embedds, mask=mask,
+        preds, r_iters = model.forward(embedds, mask=long_mask,
                                        recycle=recycle_func(None))       # (B, L, 4)
     elif mode == "test": 
-        preds, r_iters = model.predict_fold(embedds, mask=mask,
+        preds, r_iters = model.predict_fold(embedds, mask=long_mask,
                                             recycle=recycle_func(None))  # (B, L, 4)
     elif mode == "fast_test": 
         embedds[:, :, -4:] = embedds[:, :, -4:] * 0. # zero out angle features
-        preds, r_iters = model.forward(embedds, mask=mask,
+        preds, r_iters = model.forward(embedds, mask=long_mask,
                                        recycle=recycle_func(None))     # , inter_recycle=True
-        
-    # discard last point
-    preds = torch.cat([preds[:, :1, :], preds[:, :-1, :]], dim=-2)
         
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
 
-    # restate first values to known ones (1st angle, 1s + 2nd dihedral)
-    points_preds[:, 0, :] = points_preds[:, 0, :]*0 + points_input[:, 0, :]
-    points_preds[:, 1, 1] = points_preds[:, 1, 1]*0 + points_input[:, 1, 1]
-
-    # apply norm before reconstruction - ensure they're unit vectors  # (B, L, 14, 3)                      
-    ca_trace_pred = torch.zeros_like(coords)                   
-    ca_trace_pred[:, :, 1], frames_preds = mp_nerf.proteins.ca_from_angles( 
-        (points_preds / (points_preds.norm(dim=-1, keepdim=True) + 1e-7)).reshape(1, -1, 4)
-    ) 
-    # ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    # post-process
+    points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
+        points_preds, mask=long_mask 
+    )
 
     # get frames for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
         points_label.reshape(1, -1, 4) # (B, L, 2, 2) -> (B, L, 4)
     ) 
 
-    # calc BB and reverse if chiral, select ca trace again.
-    wrapper_pred = mp_nerf.proteins.ca_bb_fold( ca_trace_pred[:, :, 1] ) 
 
     return {
         "seq": seq,
@@ -259,11 +253,13 @@ def inference(*args, model, embedder, batch_converter=None,
         "angles": angles,
         "padding_seq": padding_seq,
         "mask": mask,
+        "long_mask": long_mask, 
         "pid": pid, 
         # labels
         "true_coords": true_coords,  # (B, (L C), 3)
         "coords": coords,            # (B, L, C, 3)
         "ca_trace": ca_trace, 
+        "angles_label": angles_label_,  # (L, 2)
         "points_label": points_label,
         "frames_labels": frames_labels, # (L, 3, 3)
         # inputs
@@ -319,20 +315,20 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
                 model=model, embedder=embedder, batch_converter=batch_converter, 
                 mode=mode, device=device, recycle_func=recycle_func
             )
-        # calculate metrics
+        # calculate metrics || calc loss terms || baselines for next-term: torsion=2, fape=0.95
         for infer in infer_batch: 
-            # calc loss terms || baselines for next-term: torsion=2, fape=0.95
+            # discard 0. angles (result of unknown coord, padding, etc)
+            angle_mask = infer["angles_label"] != 0.
             torsion_loss = mp_nerf.ml_utils.torsion_angle_loss(
-                pred_points=infer["points_preds"][:, :-1], # (B, L-2, 2, 2) 
-                true_points=infer["points_label"][:, :-1], # (B, L-2, 2, 2)
+                pred_points=infer["points_preds"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
+                true_points=infer["points_label"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
             )
 
             # violation loss btween calphas - L1
-            dist_mat = torch.cdist(infer["wrapper_pred"][:, :, 1], 
-                                   infer["wrapper_pred"][:, :, 1],) + \
-                       torch.eye(infer["wrapper_pred"][0, :, 1].shape[0], 
-                                 device=device).unsqueeze(0) * 5
-            viol_loss = -torch.minimum(dist_mat - 3.75, torch.zeros_like(dist_mat)) 
+            dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
+                                           infer["wrapper_pred"][:, :, 1],) # B, L, L
+            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = 5.
+            viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.) 
             
             # calc metrics
             log_dict = {
@@ -340,7 +336,9 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
                 "viol_loss": viol_loss.mean().item()           
             }
             metrics = mp_nerf.proteins.get_protein_metrics(
-                true_coords=infer["coords"], pred_coords=infer["wrapper_pred"], detach=True
+                true_coords=infer["coords"][:, infer["mask"]],
+                pred_coords=infer["ca_trace_pred"][:, infer["mask"]],
+                detach=True
             )
             log_dict.update({
                 k:v.mean().item() for k,v in metrics.items() if "wrap" not in k
@@ -424,17 +422,17 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
         loss_batch = 0
         for i, infer in enumerate(infer_batch):
             # calc loss terms 
+            angle_mask = infer["angles_label"] != 0.
             torsion_loss = mp_nerf.ml_utils.torsion_angle_loss(
-                pred_points=infer["points_preds"][:, :-1], # (B, L-2, 2, 2) 
-                true_points=infer["points_label"][:, :-1], # (B, L-2, 2, 2)
+                pred_points=infer["points_preds"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
+                true_points=infer["points_label"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
             )
 
             # violation loss btween calphas - L1
-            dist_mat = torch.cdist(infer["wrapper_pred"][:, :, 1], 
-                                   infer["wrapper_pred"][:, :, 1],) + \
-                       torch.eye(infer["wrapper_pred"][0, :, 1].shape[0], 
-                                 device=device).unsqueeze(0) * 5
-            viol_loss = -torch.minimum(dist_mat - 3.78, torch.zeros_like(dist_mat)) 
+            dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
+                                           infer["wrapper_pred"][:, :, 1],) # B, L, L
+            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = 5.
+            viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.) 
             
             # calc metrics
             log_dict = {
@@ -442,7 +440,9 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
                 "viol_loss": viol_loss.mean().item()           
             }
             metrics = mp_nerf.proteins.get_protein_metrics(
-                true_coords=infer["coords"], pred_coords=infer["wrapper_pred"], detach=False
+                true_coords=infer["coords"][:, infer["mask"]],
+                pred_coords=infer["ca_trace_pred"][:, infer["mask"]],
+                detach=False
             )
             log_dict.update({k:v.mean().item() for k,v in metrics.items() if "wrap" not in k})
 
@@ -492,6 +492,64 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
     return metrics_list, metrics_stats
 
 
+#############################
+## MAKING REAL PREDICTIONS ##
+#############################
 
+def infer_from_seqs(seq_list, model, embedder, batch_converter, 
+                    recycle_func=lambda x: 10, device="cpu"): 
+    """ Infers structures for a sequence of proteins. 
+        Inputs: 
+        * seq_list: list of str. Protein sequences in FASTA format
+        * model: torch.nn.Module pytorch model
+        * embedder: torch.nn.Module pytorch model. 
+        * batch_converter: function to prepare input tokens for the embedder. 
+        * recycle_func: func -> int. number of recycling iterations. a lower value 
+            makes prediction faster. Past 10, improvement is marginal.
+        * device: str or torch.device. Device for inference. CPU is slow. 
+        Outputs: dict of
+        * coords: list of torch.FloatTensor. Each of shape (L, 14, 3)
+        * int_seq: list of torch.LongTensor. Each of shape (L, )
+    """
+    batch_dim = len(seq_list)
+    lengths = [len(x) for x in seq_list]
+    max_seq_len = max(lengths)
+    # group in batch - init tokens to padding tok
+    int_seq = torch.ones(batch_dim, max_seq_len, dtype=torch.long)*21
+    for i, seq in enumerate(seq_list): 
+        int_seq[i, :lengths[i]] = torch.tensor([ 
+            mp_nerf.kb_proteins.AAS2INDEX[aa] for aa in seq 
+        ])
+    int_seq = int_seq.to(device)
+    mask = int_seq != 21 # tokens to predict
+
+    # get embeddings
+    embedds = get_esm_embedd(int_seq, embedd_model=embedder, batch_converter=batch_converter)
+    embedds = torch.cat([
+        embedds, 
+        torch.zeros_like(embedds[..., -4:])
+    ], dim=-1)
+    # don't pass angles info - just 0 at start (sin=0, cos=1)
+    embedds[:, :, [1, 3]] = 1.
+    # pred
+    with torch.no_grad(): 
+        preds, r_iters = model.forward(embedds, mask=None, recycle=recycle_func(None))  
+    points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
+    
+    # POST-PROCESS
+    points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
+        points_preds, seq_list=seq_list, mask=mask
+    )
+
+    return {
+        # (L, 14, 3)
+        "coords": [ wrapper_pred[i, :lengths[i]] for i in range(batch_dim) ], 
+        # (L, )
+        "int_seq": [ int_seq[i, :lengths[i]] for i in range(batch_dim) ],
+        # (L, 2, 2)
+        "points_preds": [ points_preds[i:i+1, :lengths[i]] for i in range(batch_dim) ],
+        # (L, 3, 3)
+        "frames_preds": [ frames_preds[i, :lengths[i]] for i in range(batch_dim)] ,
+    }
 
 
