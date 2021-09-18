@@ -317,8 +317,8 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
                 "viol_loss": viol_loss.mean().item()           
             }
             metrics = mp_nerf.proteins.get_protein_metrics(
-                true_coords=infer["coords"][:, infer["long_mask"]],
-                pred_coords=infer["ca_trace_pred"][:, infer["long_mask"]],
+                true_coords=infer["coords"][:, infer["mask"]],
+                pred_coords=infer["ca_trace_pred"][:, infer["mask"]],
                 detach=True
             )
             log_dict.update({
@@ -420,8 +420,8 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
                 "viol_loss": viol_loss.mean().item()           
             }
             metrics = mp_nerf.proteins.get_protein_metrics(
-                true_coords=infer["coords"][:, infer["long_mask"]],
-                pred_coords=infer["ca_trace_pred"][:, infer["long_mask"]],
+                true_coords=infer["coords"][:, infer["mask"]],
+                pred_coords=infer["ca_trace_pred"][:, infer["mask"]],
                 detach=False
             )
             log_dict.update({k:v.mean().item() for k,v in metrics.items() if "wrap" not in k})

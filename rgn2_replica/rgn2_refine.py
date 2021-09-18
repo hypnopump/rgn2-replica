@@ -40,13 +40,18 @@ def get_fa_min_mover(
 
 
 def get_fa_relax_mover(
-        max_iter: int = 200) -> pyrosetta.rosetta.protocols.moves.Mover:
+        max_iter: int = 200, coord_constraint: float = 0.5
+    ) -> pyrosetta.rosetta.protocols.moves.Mover:
     """ Create full-atom relax mover
         Inputs: 
         * max_iter: int. Maximum number of iterations for FastRelax
     """
     # Create full-atom score function
     sf = pyrosetta.create_score_function('ref2015_cst')
+    sf.set_weight(
+        pyrosetta.rosetta.core.scoring.ScoreType.coordinate_constraint,
+        coord_constraint
+    )
 
     # Allow movement of backbone, side chains, and chain breaks
     mmap = pyrosetta.rosetta.core.kinematics.MoveMap()
@@ -92,7 +97,13 @@ def quick_refine(in_pdb: str, out_pdb: Optional[str] = None, min_iter: int = 100
     # Save refined structure to PDB
     pose.dump_pdb(out_pdb)
 
-def relax_refine(in_pdb: str, out_pdb: Optional[str] = None, min_iter: int = 1000, relax_iter: int = 200):
+def relax_refine(
+    in_pdb: str, 
+    out_pdb: Optional[str] = None, 
+    min_iter: int = 1000, 
+    relax_iter: int = 200,
+    coord_constraint: float = 0.5,
+    ):
     """ PyRosetta protocol for relaxation and minimization of protein structure
         Inputs: 
         * in_pdb: str. Path to PDB file to be refined
@@ -112,7 +123,7 @@ def relax_refine(in_pdb: str, out_pdb: Optional[str] = None, min_iter: int = 100
     cst_mover = pyrosetta.rosetta.protocols.relax.AtomCoordinateCstMover()
     cst_mover.cst_sidechain(False)
     min_mover = get_fa_min_mover(min_iter)
-    relax_mover = get_fa_relax_mover(relax_iter)
+    relax_mover = get_fa_relax_mover(relax_iter, coord_constraint)
     idealize_mover = pyrosetta.rosetta.protocols.idealize.IdealizeMover()
 
     # Refine structure
@@ -136,6 +147,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", help="protein file for output", default=None)
     parser.add_argument("--relax_iters", help="energy minimization iterations", default=100)
     parser.add_argument("--relax_iters", help="relaxation iterations", default=300)
+    parser.add_argument("--coord_constraint", help="for coord mod. higher = sticter", default=0.5)
     parser.add_argument("--mess", help="message to print before attempt")
     args = parser.parse_args()
     if args.output is None: 
@@ -146,7 +158,8 @@ if __name__ == "__main__":
         args.input, 
         args.output, 
         min_iter=args.min_iters, 
-        relax_iter=args.relax_iters
+        relax_iter=args.relax_iters,
+        coord_constraint=args.coord_constraint,
     )
     print("All done")
 
