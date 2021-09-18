@@ -80,8 +80,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
         angles_mask_[i, 2:length-1, 0] = (
             mask[i, :length-3] * mask[i, 1:length-2] * mask[i, 2:length-1], mask[i, 3:length]
         )
-    # replace nan and (angles whose coords are not known) by 0.
-    angles_label_[angles_label_ != angles_label_] = 0.
+    # replace nan and (angles whose coords are not fully known) by 0.
     angles_label_[~angles_mask] = 0.
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
@@ -201,8 +200,7 @@ def inference(*args, model, embedder, batch_converter=None,
     angles_mask_[i, 2:-1, 0] = (
         mask[i, :-3] * mask[i, 1:-2] * mask[i, 2:-1], mask[i, 3:]
     )
-    # replace nan and (angles whose coords are not known) by 0.
-    angles_label_[angles_label_ != angles_label_] = 0.
+    # replace nan and (angles whose coords are not fully known) by 0.
     angles_label_[~angles_mask] = 0.
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
@@ -319,11 +317,11 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
             )
         # calculate metrics || calc loss terms || baselines for next-term: torsion=2, fape=0.95
         for infer in infer_batch: 
-            # discard fully planar angles (result of unknown coord or padding)
-            # angle_mask = infer["angles_label"] != 0.
+            # discard 0. angles (result of unknown coord, padding, etc)
+            angle_mask = infer["angles_label"] != 0.
             torsion_loss = mp_nerf.ml_utils.torsion_angle_loss(
-                pred_points=infer["points_preds"][:, :-1], # (B, L-2, 2, 2) if all are known
-                true_points=infer["points_label"][:, :-1], # (B, L-2, 2, 2) if all are known
+                pred_points=infer["points_preds"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
+                true_points=infer["points_label"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
             )
 
             # violation loss btween calphas - L1
@@ -424,9 +422,10 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
         loss_batch = 0
         for i, infer in enumerate(infer_batch):
             # calc loss terms 
+            angle_mask = infer["angles_label"] != 0.
             torsion_loss = mp_nerf.ml_utils.torsion_angle_loss(
-                pred_points=infer["points_preds"][:, :-1], # (B, L-2, 2, 2) 
-                true_points=infer["points_label"][:, :-1], # (B, L-2, 2, 2)
+                pred_points=infer["points_preds"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
+                true_points=infer["points_label"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
             )
 
             # violation loss btween calphas - L1
