@@ -54,7 +54,7 @@ def parse_arguments():
 def load_dataloader(args):
     dataloaders = sidechainnet.load(
         casp_version=args.casp_version, 
-        thinning=args.scn_tinning, 
+        thinning=args.scn_thinning, 
         with_pytorch="dataloaders",
         batch_size=1, dynamic_batching=False
     )
