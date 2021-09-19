@@ -28,6 +28,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, help="Model file for prediction")
     parser.add_argument("--rosetta_refine", type=int, default=0, help="refine output with Rosetta. 0 for no refinement")
     parser.add_argument("--rosetta_relax", type=int, default=0, help="relax output with Rosetta. 0 for no relax.")
+    parser.add_argument("--coord_constraint", type=float, default=1.0, help="constraint for Rosetta relax. higher=stricter.")
     parser.add_argument("--recycle", default=10, help="Recycling iterations")
     parser.add_argument("--device", default="cpu", help="['cpu', 'cuda:0', 'cuda:1', ...], cpu is slow!")
     # outputs
@@ -39,7 +40,7 @@ if __name__ == "__main__":
         args.output_path = args.input.replace(".fasta", "_")
 
     # get sequences
-    seq_list = seqs_from_fasta(args.input)
+    seq_list, seq_names = seqs_from_fasta(args.input, names=True)
 
     # predict structures
     model = RGN2_Naive(
@@ -82,7 +83,7 @@ if __name__ == "__main__":
             pred_dict["int_seq"][i].cpu(), 
             crd = pred_dict["coords"][i].reshape(-1, 3).cpu() 
         ) 
-        out_files.append( args.output_path+str(i)+".pdb" )
+        out_files.append( args.output_path+str(i)+"_"+seq_names[i]+".pdb" )
         struct_pred.to_pdb( out_files[-1] )
  
         print("Saved", out_files[-1])
@@ -97,7 +98,7 @@ if __name__ == "__main__":
             if args.rosetta_relax == 0: 
                 quick_refine(
                     in_pdb = out_files[i],
-                    out_pdb = out_files[i][:-4]+"_refined_relaxed.pdb",
+                    out_pdb = out_files[i][:-4]+"_refined.pdb",
                     min_iter = args.rosetta_refine
                 )
             # refine and relax
@@ -106,7 +107,8 @@ if __name__ == "__main__":
                     out_files[i], 
                     out_pdb=out_files[i][:-4]+"_refined_relaxed.pdb", 
                     min_iter = args.rosetta_refine, 
-                    relax_iter = args.rosetta_relax
+                    relax_iter = args.rosetta_relax,
+                    coord_constraint = args.coord_constraint,
                 )
             print(out_files[i], "was refined successfully")
 

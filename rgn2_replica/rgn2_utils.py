@@ -57,15 +57,17 @@ def get_esm_embedd(seq, embedd_model, batch_converter, msa_data=None):
     return token_reps.detach()
 
 
-def seqs_from_fasta(fasta_file): 
+def seqs_from_fasta(fasta_file, names=False): 
     """ Reads protein sequences from FASTA files. """
-    seqs = []
+    seqs, names = [], []
     with open(fasta_file, "r") as f: 
         lines = f.readlines()
-        for line in lines: 
+        for i, line in enumerate(lines): 
             if line[0] not in {">", ";"}: 
+                names.append( lines[i-1][1:].replace(" ", "_").replace("\n", "") )
                 seqs.append( line.replace("\n", "") )
 
-    return [re.sub(r'[^a-zA-Z]','', seq).upper() for seq in seqs]
+    seqs = [re.sub(r'[^a-zA-Z]','', seq).upper() for seq in seqs]
+    return seqs if not names else (seqs, names)
 
 
