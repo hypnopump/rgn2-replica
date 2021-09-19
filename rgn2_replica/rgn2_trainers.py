@@ -144,7 +144,7 @@ def batched_inference(*args, model, embedder,
             "true_coords": true_coords[i:i+1, :arg[1].shape[-1]*14], # (1, (L C), 3)
             "coords": coords[i:i+1, :arg[1].shape[-1]],              # (1, L, C, 3)
             "ca_trace": ca_trace[i:i+1, :arg[1].shape[-1]],          # (1, L, 3)
-            "angles_label": angles_label_[i:i+1, :arg[1].shape[-1]] # (1, L, 2)
+            "angles_label": angles_label_[i:i+1, :arg[1].shape[-1]], # (1, L, 2)
             "points_label": points_label[i:i+1, :arg[1].shape[-1]],  # (1, L, 2, 2)
             "frames_labels": frames_labels[i, :arg[1].shape[-1]],    # (L, 3, 3)
             # inputs
