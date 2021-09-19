@@ -36,7 +36,7 @@ class ClaspEmbedder(torch.nn.Module):
 
         with torch.no_grad():
             tokenized_seq = self.tokenizer(aa_seq, context_length=len(aa_seq), return_mask=False)
-            all_embeddings = self.clasp_bioseq_encoder(tokenized_seq.unsqueeze(0).to(self.device), return_all_embeddings=True)
+            all_embeddings = self.clasp_bioseq_encoder(to_device(tokenized_seq.unsqueeze(0), self.device), return_all_embeddings=True)
 
             # drop CLS embedding, return per-token embeddings only
             return all_embeddings[:, 1:]
@@ -69,7 +69,7 @@ class EsmEmbedder(torch.nn.Module):
 
         with torch.no_grad():
             results = self.embedder( 
-                to_device(batch_tokens, device), 
+                to_device(batch_tokens, self.device), 
                 repr_layers=[REPR_LAYER_NUM], 
                 return_contacts=False
             )
