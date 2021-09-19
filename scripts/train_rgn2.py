@@ -9,12 +9,15 @@ import esm
 import sidechainnet
 from sidechainnet.utils.sequence import ProteinVocabulary as VOCAB
 
+# IMPORTED ALSO IN LATER MODULES
+VOCAB = VOCAB()
+
 import mp_nerf
 from rgn2_replica.rgn2_trainers import *
 from rgn2_replica.embedders import *
 from rgn2_replica import set_seed, RGN2_Naive
 
-VOCAB = VOCAB()
+
 
 
 def parse_arguments():
