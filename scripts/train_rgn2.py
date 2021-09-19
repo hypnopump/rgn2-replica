@@ -15,34 +15,68 @@ from rgn2_replica import set_seed, RGN2_Naive
 
 VOCAB = VOCAB()
 
-# params for prost
-MIN_LEN = 0
-MAX_LEN = 512
-
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Train RGN2 model')
-    parser.add_argument("--device", help="Device ('cpu', 'cuda', 'cuda:0')", type=str, required=True)
+    # logging
+    parser.add_argument("--device", help="Device ('cpu', cuda:0', ...)", type=str, required=True)
     parser.add_argument("--wb_proj", help="W & B project name", type=str, default=None)
     parser.add_argument("--wb_entity", help="W & B entity", type=str, default=None)
     parser.add_argument("--run_name", help="Experiment name", type=str, required=True)
-    parser.add_argument("--seed", help="Random seed", default=101)
+    # run handling
+    parser.add_argument("--resume_name", help="model path to load and resume", type=str, default=None)
+    parser.add_argument("--resume_iters", help="num of iters to resume training at", type=int, default=0)
+    # data params
+    parser.add_argument("--min_len", help="Min seq len, for train", type=int, default=0)
+    parser.add_argument("--min_len_valid", help="Min seq len, for valid", type=int, default=0)
+    parser.add_argument("--max_len", help="Max seq len", type=int, default=512)
+    parser.add_argument("--casp_version", help="SCN dataset version", type=int, default=12)
+    parser.add_argument("--scn_thinning", help="SCN dataset thinning", type=int, default=90)
+    parser.add_argument("--xray", help="only use xray structures", type=bool, default=0)
+    # model params
+    parser.add_argument("--embedder_model", help="Embedding model to use", default='esm1b')
+    parser.add_argument("--num_layers", help="num rnn layers", type=int, default=2)
+    parser.add_argument("--emb_dim", help="embedding dimension", type=int, default=1280)
+    parser.add_argument("--hidden", help="hidden dimension", type=int, default=1024)
+    parser.add_argument("--act", help="hideen activation", type=str, default="silu")
+    parser.add_argument("--layer_type", help="rnn layer type", type=str, default="LSTM")
+    parser.add_argument("--input_dropout", help="input dropout", type=float, default=0.5)
+    parser.add_argument("--bidirectional", help="bidirectionality", type=bool, default=0)
+    parser.add_argument("--angularize", help="angularization units. 0 for reg", type=int, default=0)
+    parser.add_argument("--num_recycles_train", type=int, default=3, 
+                        help="number of recycling iters. set to 1 to speed training.",)
+
+    parser.add_argument("--seed", help="Random seed", default=42)
 
     return parser.parse_args()
 
 
 def load_dataloader(args):
-    dataloaders = sidechainnet.load(casp_version=7, thinning=30, with_pytorch="dataloaders",
-                                    batch_size=1, dynamic_batching=False)
+    dataloaders = sidechainnet.load(
+        casp_version=args.casp_version, 
+        thinning=args.scn_tinning, 
+        with_pytorch="dataloaders",
+        batch_size=1, dynamic_batching=False
+    )
 
     return dataloaders
 
 
-def load_embedding(args):
-    embedder, alphabet = esm.pretrained.esm1b_t33_650M_UR50S()
-    batch_converter = alphabet.get_batch_converter()
+def save_as_txt(*items, path):
+    if "/" in path: 
+        folder = "/".join(path.split("/")[:-1])
+        os.makedirs(folder, exist_ok=True)
 
-    return embedder, alphabet, batch_converter
+    with open(path, "a") as f:
+        for item in items: 
+            try: 
+                for line in item: 
+                    f.write(str(line)+"\n")
+            except Exception as e:
+                print("Error in saving:", e) 
+                f.write(str(item))
+
+            f.write("\n")
 
 
 def init_wandb_config(args):
@@ -52,35 +86,49 @@ def init_wandb_config(args):
     config = wandb.config
     config.seed = args.seed
     config.device = args.device
+    config.embedder_model = args.embedder_model
+    config.scn_version = str(args.casp_version)+"-"+str(args.scn_thinning)
+    config.min_len = args.min_len
+    config.max_len = args.max_len
+    config.xray = bool(args.xray)
 
     # model hyperparams
-    config.num_layers = 2
-    config.emb_dim = 1280
-    config.hidden = 1024
-    config.mlp_hidden = [128, 4]  # 4 # 64
-    config.act = "silu"  # "silu"
-    config.layer_type = "LSTM"  # "LSTM"
-    config.input_dropout = 0.5
+    config.num_layers = args.num_layers
+    config.emb_dim = args.emb_dim
+    config.hidden = args.hidden
+    config.mlp_hidden = [128, 4 if args.angularize == 0 else args.angularize]  # 4 # 64
+    config.act = args.act  # "silu"
+    config.layer_type = args.layer_type  # "LSTM"
+    config.input_dropout = args.input_dropout
 
-    config.bidirectional = True  # True
-    config.max_recycles_train = 3  #  set up to 1 to speed things
-    config.angularize = False
+    config.bidirectional = bool(args.bidirectional)  # True
+    config.max_recycles_train = args.num_recycles_train  #  set up to 1 to speed things
+    config.angularize = bool(args.angularize)
+    
+    return config
 
 
 def init_and_train(args):
+    config = init_wandb_config(args)
+
     dataloaders = load_dataloader(args)
     print('loaded dataloaders')
 
-    # TODO: switch to custom embedder module
-    embedder, alphabet, batch_converter = load_embedding(args)
+    embedder = get_embedder(config, config.device)
     print('loaded embedder')
 
     config = init_wandb_config(args)
 
-    run_train_schedule(dataloaders, embedder, batch_converter, config)
+    results = run_train_schedule(dataloaders, embedder, config, args)
+
+    save_as_txt(
+        [args, config, *results], 
+        path = "rgn2_models/"+wandb.run.name.replace("/", "_")+"_logs.txt"
+    )
 
 
-def run_train_schedule(dataloaders, embedder, batch_converter, config):
+def run_train_schedule(dataloaders, embedder, config, args):
+    valid_log_acc = []
     device = torch.device(config.device)
     embedder = embedder.to(device)
 
@@ -95,40 +143,41 @@ def run_train_schedule(dataloaders, embedder, batch_converter, config):
                        input_dropout=config.input_dropout,
                        angularize=config.angularize,
                        ).to(device)
+    
+    if args.resume_name is not None: 
+        model.load_state_dict(torch.load(args.resume_name))
 
     # 3. Log gradients and model parameters
     wandb.watch(model)
 
-    steps = get_training_schedule()
+    steps = get_training_schedule(args)
 
-    resume = False  #  only if declaring new optim
-    for i, (batch_num, checkpoint, lr, batch_size, max_len, clip, loss_f, seed) in enumerate(steps):
+    resume = True  # declare new optim
+    for i, (batch_num, ckpt, lr, batch_size, max_len, clip, loss_f, seed) in enumerate(steps):
         # reconfig batch otpions
         wandb.log({
             'learning_rate': lr,
             'batch_size': batch_size
         }, commit=False)
 
-#         if i < 2:
-#             continue
-        # if i == 2: break # if i < 1: continue
-        # if i == 5: break #  continue
+        if sum([steps[j][0] for j in range(i)]) < args.resume_iters: continue
 
-        if i == 0 or resume:
-            optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
-        else:
-            for g in optimizer.param_groups:
-                g['lr'] = lr
-
-        if seed is not None or resume:
-            if not resume:
+        if resume:
+            if seed is not None:
                 set_seed(seed)
             get_prot_ = mp_nerf.utils.get_prot(
                 dataloader_=dataloaders,
                 vocab_=VOCAB,
-                min_len=MIN_LEN, max_len=max_len,  # MAX_LEN,
-                verbose=False, subset="train"
+                min_len=config.min_len, max_len=max_len,  # MAX_LEN,
+                verbose=False, subset="train", 
+                xray_filter=config.xray,
             )
+
+            optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
+            resume = False
+        else:
+            for g in optimizer.param_groups:
+                g['lr'] = lr
 
         # train
         metrics_stuff = train(
@@ -136,7 +185,6 @@ def run_train_schedule(dataloaders, embedder, batch_converter, config):
             steps=batch_num,
             model=model,
             embedder=embedder,
-            batch_converter=batch_converter,
             optim=optimizer,
             loss_f=loss_f,  # + 0.005 * metrics['drmsd'].mean()",
             clip=clip,
@@ -149,62 +197,118 @@ def run_train_schedule(dataloaders, embedder, batch_converter, config):
 
         metric = np.mean([x["drmsd"] for x in metrics_stuff[0][-5*batch_size:]])
         print("\nCheckpoint {0} @ {1}, pass @ {2}. Metrics mean train = {1}\n".format(
-            i, checkpoint, metric, metrics_stuff[-1]
+            i, ckpt, metric, metrics_stuff[-1]
         ))
 
         # save
+        os.makedirs('rgn2_models', exist_ok=True)
         save_path = "rgn2_models/"+wandb.run.name.replace("/", "_")+"@_{0}K.pt".format(
             sum(p[0] for p in steps[:i+1]) // 1000
         )
         torch.save(model.state_dict(), save_path)
 
-        # ABORT OR CONTINUE: mean of last 5 batches below checkpoint
-        if metric > checkpoint:
+        ## VALIDATING
+        for valid_set in [10, 20, 30, 40, 50, 70, 90]:
+            print("Validating "+str(valid_set))
+            tic = time.time()
+            get_prot_valid_ = mp_nerf.utils.get_prot( 
+                dataloader_=dataloaders, 
+                vocab_=VOCAB, # mp_nerf.utils.
+                min_len=args.min_len_valid, max_len=max_len, 
+                verbose=False, subset="valid-"+str(valid_set)
+            )
+            # get num of unique, full-masked proteins
+            seqs = []
+            for i, prot_args in enumerate(dataloaders["valid-"+str(valid_set)].dataset):
+                # (id, int_seq, mask, ... , str_seq)
+                length = len(prot_args[-1]) 
+                if args.min_len_valid < length < max_len and sum( prot_args[2] ) == length:
+                    seqs.append( prot_args[-1] )
+
+            metrics_stuff_eval = predict(
+                get_prot_= get_prot_valid_, 
+                steps = len(set(seqs)), # 24 for MIN_LEN=70
+                model = model,
+                embedder = embedder, 
+                return_preds = True,
+                log_every = 4,
+                accumulate_every = len(set(seqs)),
+                seed = 0, # 42
+                mode = "fast_test", # "test" # "test" is for AR, "fast_test" is for iterative
+                recycle_func = lambda x: 10, # 5 # 3 # 2 
+                wandbai = False,
+            )
+            preds_list_eval, metrics_list_eval, metrics_stats_eval = metrics_stuff_eval
+            print("\n", "Eval Results:", sep="")
+            for k,v in metrics_stats_eval.items():
+                offset = " " * ( max(len(ki) for ki in metrics_stats_eval.keys()) - len(k) )
+                print(k + offset, ":", v)
+            print("\n")
+            print("Time taken: ", time.time()-tic, "\n")
+        
+        # save logs to compare runs - wandb not enough
+        valid_log_acc.append(metrics_stats_eval)
+
+        # ABORT OR CONTINUE: mean of last 5 batches below ckpt
+        if metric > ckpt:
             print("ABORTING")
-            print("Didn't pass checkpoint {0} @ drmsd = {1}, but instead drmsd = {2}".format(
-                i, checkpoint, metric
+            print("Didn't pass ckpt {0} @ drmsd = {1}, but instead drmsd = {2}".format(
+                i, ckpt, metric
             ))
             break
 
-    # !mkdir rgn2_models
     os.makedirs('rgn2_models', exist_ok=True)
     save_path = "rgn2_models/"+wandb.run.name.replace("/", "_")+"@_{0}K.pt".format(
         sum(p[0] for p in steps[:i+1]) // 1000
     )
     torch.save(model.state_dict(), save_path)
 
+    ### TEST
+    tic = time.time()
+    get_prot_test_ = mp_nerf.utils.get_prot( 
+        dataloader_=dataloaders, 
+        vocab_=VOCAB, # mp_nerf.utils.
+        min_len=args.min_len_valid, max_len=max_len, 
+        verbose=False, subset="test"
+    )
+    # get num of unique, full-masked proteins
+    seqs = []
+    for i, prot_args in enumerate(dataloaders["test"].dataset):
+        # (id, int_seq, mask, ... , str_seq)
+        length = len(prot_args[-1]) 
+        if args.min_len_valid < length < max_len and sum( prot_args[2] ) == length:
+            seqs.append( prot_args[-1] )
 
-def get_training_schedule():
-    loss_f = "torsion_loss.mean()"
-    loss_after = " + 0.2 * ( metrics['drmsd'].mean() / len(infer['seq']) )"  # metrics['rmsd'].mean() +
+    metrics_stuff_test = predict(
+        get_prot_= get_prot_test_, 
+        steps = len(set(seqs)), # 24 for MIN_LEN=70
+        model = model,
+        embedder = embedder, 
+        return_preds = True,
+        log_every = 4,
+        accumulate_every = len(set(seqs)),
+        seed = 0, # 42
+        mode = "fast_test", # "test" # "test" is for AR, "fast_test" is for iterative
+        recycle_func = lambda x: 10, # 5 # 3 # 2 
+        wandbai = False,
+    )
+    preds_list_test, metrics_list_test, metrics_stats_test = metrics_stuff_test
+    print("\n", "Test Results:", sep="")
+    for k,v in metrics_stats_test.items():
+        offset = " " * ( max(len(ki) for ki in metrics_stats_test.keys()) - len(k) )
+        print(k + offset, ":", v)
+    print("\n")
+    print("Time taken: ", time.time()-tic, "\n")
 
-    #         steps, checkpoint, lr , bs , max_len, clip, loss_f
-    return [[1000, 135, 1e-3, 8, MAX_LEN, None, loss_f, 42, ],
-            [4000, 50, 1e-3, 16, MAX_LEN, None, loss_f, None, ],
-            [10000, 50, 1e-3, 16, MAX_LEN, None, loss_f, None, ],
-            [5000, 45, 1e-3, 16, MAX_LEN, 1., loss_f+loss_after+" * 0.05", None, ],
-            [5000, 40, 1e-3, 32, MAX_LEN, 1., loss_f+loss_after+" * 0.1", None, ],
-            [5000, 35, 1e-3, 32, MAX_LEN, 1., loss_f+loss_after+" * 0.175", None, ],
-            # these ones add little value, it's mostly refinement
-            [5000, 35, 1e-3, 32, MAX_LEN, 1., loss_f+loss_after+" * 0.25", None, ],
-            [5000, 35, 1e-3, 32, MAX_LEN, 1., loss_f+loss_after+" * 0.375", None, ],
-            [5000, 35, 1e-3, 32, MAX_LEN, 1., loss_f+loss_after+" * 0.5", None, ],
-            [5000, 35, 1e-3, 32, MAX_LEN, 1., loss_f+loss_after+" * 0.75", None, ],
-            [5000, 33.75, 5e-4, 32, MAX_LEN, 1., loss_f+loss_after+" * 1.00", None, ],
-            [5000, 33.75, 5e-4, 32, MAX_LEN, 1., loss_f+loss_after+" * 1.50", None, ],
-            [5000, 33.75, 5e-4, 32, MAX_LEN, 1., loss_f+loss_after+" * 1.50", None, ],
-            [5000, 33.75, 5e-4, 32, MAX_LEN, 1., loss_f+loss_after+" * 2.00", None, ],
-            [5000, 23.75, 5e-4, 32, MAX_LEN, 1., loss_f+loss_after+" * 2.00", None, ],
-            [5000, 23.75, 5e-4, 32, MAX_LEN, 1., loss_f+loss_after+" * 2.50", None, ],
-            [5000, 23.75, 5e-4, 32, MAX_LEN, 1., loss_f+loss_after+" * 2.50", None, ],
-            [5000, 23.75, 5e-4, 32, MAX_LEN, 1., loss_f+loss_after+" * 3.00", None, ],
-            [5000, 23.75, 5e-4, 32, MAX_LEN, 1., loss_f+loss_after+" * 3.00", None, ],
-            [5000, 23.75, 5e-4, 32, MAX_LEN, 1., loss_f+loss_after+" * 3.75", None, ],
-            # till here
-            [5000, 23.75, 5e-4, 64, MAX_LEN, 1., loss_f+loss_after+" * 4.50", None, ],
-            [10000, 20, 1e-4, 64, MAX_LEN, 1., loss_f+loss_after+" * 6.25", None, ],
-            [10000, 20, 1e-4, 64, MAX_LEN, 1., loss_f+loss_after+" * 10.00", None, ],
-            [10000, 20, 1e-4, 64, MAX_LEN, 1., loss_f+loss_after+" * 20.00", None, ], ]
+    return metrics_stats_eval, valid_log_acc
+
+
+
+def get_training_schedule(args):
+    loss_f = " metrics['drmsd'].mean() / len(infer['seq']) " 
+
+    #         steps, ckpt, lr , bs , max_len, clip, loss_f
+    return [[32000, 135   , 1e-3, 8  , args.max_len, None, loss_f, 42  , ],]
 
 
 if __name__ == '__main__':
