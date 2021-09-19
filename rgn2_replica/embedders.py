@@ -1,5 +1,5 @@
 import torch
-from rgn2_utils import *
+from rgn2_replica.rgn2_utils import *
     
 
 class ClaspEmbedder(torch.nn.Module):
