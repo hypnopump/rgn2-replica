@@ -68,7 +68,7 @@ class EsmEmbedder(torch.nn.Module):
         batch_labels, batch_strs, batch_tokens = self.batch_converter(aa_seq)
 
         with torch.no_grad():
-            results = embedd_model( 
+            results = self.embedder( 
                 to_device(batch_tokens, device), 
                 repr_layers=[REPR_LAYER_NUM], 
                 return_contacts=False
