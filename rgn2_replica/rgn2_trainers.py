@@ -24,7 +24,7 @@ except:
 
 
 
-def batched_inference(*args, model, embedder, batch_converter=None,
+def batched_inference(*args, model, embedder,
                              mode="test", device="cpu", recycle_func=lambda x: 1):
     """ Inputs: 
         * args: iterable of outputs from mp_nerf.utils.get_prot()
@@ -95,7 +95,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     if isinstance(embedder, torch.nn.Embedding): 
         embedds = embedder(int_seq.to(device))
     else: 
-        embedds = get_esm_embedd(int_seq, embedd_model=embedder, batch_converter=batch_converter)
+        embedds = embedder(int_seq)
     
     embedds = torch.cat([
         embedds, 
@@ -158,7 +158,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     )
 
 
-def inference(*args, model, embedder, batch_converter=None, 
+def inference(*args, model, embedder, 
                      mode="train", device="cpu", recycle_func=lambda x: 1):
     """ Inputs: 
         * args: output from mp_nerf.utils.get_prot()
@@ -213,9 +213,9 @@ def inference(*args, model, embedder, batch_converter=None,
 
     # PREDICT
     if isinstance(embedder, torch.nn.Embedding): 
-        embedds = embedder(int_seq)
+        embedds = embedder(int_seq.to(device))
     else: 
-        embedds = get_esm_embedd(int_seq, embedd_model=embedder, batch_converter=batch_converter)
+        embedds = embedder(int_seq)
     
     embedds = torch.cat([
         embedds, 
@@ -273,7 +273,7 @@ def inference(*args, model, embedder, batch_converter=None,
     }
 
 
-def predict(get_prot_, steps, model, embedder, batch_converter=None, return_preds=True,
+def predict(get_prot_, steps, model, embedder, return_preds=True,
          accumulate_every=1, log_every=None, seed=None, wandbai=False, 
          recycle_func=lambda x: 1, mode="test"):
     """ Performs a batch prediction. 
@@ -496,7 +496,7 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
 ## MAKING REAL PREDICTIONS ##
 #############################
 
-def infer_from_seqs(seq_list, model, embedder, batch_converter, 
+def infer_from_seqs(seq_list, model, embedder, 
                     recycle_func=lambda x: 10, device="cpu"): 
     """ Infers structures for a sequence of proteins. 
         Inputs: 
@@ -524,7 +524,10 @@ def infer_from_seqs(seq_list, model, embedder, batch_converter,
     mask = int_seq != 21 # tokens to predict
 
     # get embeddings
-    embedds = get_esm_embedd(int_seq, embedd_model=embedder, batch_converter=batch_converter)
+    if isinstance(embedder, torch.nn.Embedding): 
+        embedds = embedder(int_seq.to(device))
+    else: 
+        embedds = embedder(int_seq)
     embedds = torch.cat([
         embedds, 
         torch.zeros_like(embedds[..., -4:])
