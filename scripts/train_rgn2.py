@@ -11,6 +11,7 @@ from sidechainnet.utils.sequence import ProteinVocabulary as VOCAB
 
 import mp_nerf
 from rgn2_replica.rgn2_trainers import train
+from rgn2_replica.embedders import get_embedder
 from rgn2_replica import set_seed, RGN2_Naive
 
 VOCAB = VOCAB()
@@ -23,26 +24,21 @@ MAX_LEN = 512
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Train RGN2 model')
     parser.add_argument("--device", help="Device ('cpu', 'cuda', 'cuda:0')", type=str, required=True)
+    parser.add_argument("--run_name", help="Experiment name", type=str, required=True)
+
+    parser.add_argument("--embedder_model", help="W & B project name", default='esm1b')
     parser.add_argument("--wb_proj", help="W & B project name", type=str, default=None)
     parser.add_argument("--wb_entity", help="W & B entity", type=str, default=None)
-    parser.add_argument("--run_name", help="Experiment name", type=str, required=True)
     parser.add_argument("--seed", help="Random seed", default=101)
 
     return parser.parse_args()
 
 
-def load_dataloader(args):
+def load_dataloader(config):
     dataloaders = sidechainnet.load(casp_version=7, thinning=30, with_pytorch="dataloaders",
                                     batch_size=1, dynamic_batching=False)
 
     return dataloaders
-
-
-def load_embedding(args):
-    embedder, alphabet = esm.pretrained.esm1b_t33_650M_UR50S()
-    batch_converter = alphabet.get_batch_converter()
-
-    return embedder, alphabet, batch_converter
 
 
 def init_wandb_config(args):
@@ -54,6 +50,7 @@ def init_wandb_config(args):
     config.device = args.device
 
     # model hyperparams
+    config.embedder_model = args.embedder_model
     config.num_layers = 2
     config.emb_dim = 1280
     config.hidden = 1024
@@ -66,21 +63,22 @@ def init_wandb_config(args):
     config.max_recycles_train = 3  #  set up to 1 to speed things
     config.angularize = False
 
+    return config
+
 
 def init_and_train(args):
-    dataloaders = load_dataloader(args)
-    print('loaded dataloaders')
-
-    # TODO: switch to custom embedder module
-    embedder, alphabet, batch_converter = load_embedding(args)
-    print('loaded embedder')
-
     config = init_wandb_config(args)
 
-    run_train_schedule(dataloaders, embedder, batch_converter, config)
+    dataloaders = load_dataloader(config)
+    print('loaded dataloaders')
+
+    embedder = get_embedder(config, config.device)
+    print('loaded embedder')
+
+    run_train_schedule(dataloaders, embedder, config)
 
 
-def run_train_schedule(dataloaders, embedder, batch_converter, config):
+def run_train_schedule(dataloaders, embedder, config):
     device = torch.device(config.device)
     embedder = embedder.to(device)
 
@@ -136,7 +134,6 @@ def run_train_schedule(dataloaders, embedder, batch_converter, config):
             steps=batch_num,
             model=model,
             embedder=embedder,
-            batch_converter=batch_converter,
             optim=optimizer,
             loss_f=loss_f,  # + 0.005 * metrics['drmsd'].mean()",
             clip=clip,
