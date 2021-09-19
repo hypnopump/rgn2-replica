@@ -26,7 +26,7 @@ def parse_arguments():
     parser.add_argument("--device", help="Device ('cpu', 'cuda', 'cuda:0')", type=str, required=True)
     parser.add_argument("--run_name", help="Experiment name", type=str, required=True)
 
-    parser.add_argument("--embedder_model", help="W & B project name", default='esm1b')
+    parser.add_argument("--embedder_model", help="Embedding model to use", default='esm1b')
     parser.add_argument("--wb_proj", help="W & B project name", type=str, default=None)
     parser.add_argument("--wb_entity", help="W & B entity", type=str, default=None)
     parser.add_argument("--seed", help="Random seed", default=101)
