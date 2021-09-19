@@ -78,7 +78,7 @@ def batched_inference(*args, model, embedder,
             mask[i, :length-2] * mask[i, 1:length-1] * mask[i, 2:length]
         )
         angles_mask_[i, 2:length-1, 0] = (
-            mask[i, :length-3] * mask[i, 1:length-2] * mask[i, 2:length-1], mask[i, 3:length]
+            mask[i, :length-3] * mask[i, 1:length-2] * mask[i, 2:length-1] * mask[i, 3:length]
         )
     # replace nan and (angles whose coords are not fully known) by 0.
     # later don't count them 
