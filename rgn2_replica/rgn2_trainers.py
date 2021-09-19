@@ -315,7 +315,7 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
             prots = [ next(get_prot_) for i in range(accumulate_every) ]
             infer_batch = batched_inference(
                 *prots, 
-                model=model, embedder=embedder, batch_converter=batch_converter, 
+                model=model, embedder=embedder, 
                 mode=mode, device=device, recycle_func=recycle_func
             )
         # calculate metrics || calc loss terms || baselines for next-term: torsion=2, fape=0.95
@@ -381,7 +381,7 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
     return preds_list, metrics_list, metrics_stats
 
 
-def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f=None, 
+def train(get_prot_, steps, model, embedder, optim, loss_f=None, 
           clip=None, accumulate_every=1, log_every=None, seed=None, wandbai=False, 
           recycle_func=lambda x: 1): 
     """ Performs a batch prediction. 
@@ -417,7 +417,7 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
         prots = [ next(get_prot_) for i in range(accumulate_every) ]
         infer_batch = batched_inference(
             *prots, 
-            model=model, embedder=embedder, batch_converter=batch_converter, 
+            model=model, embedder=embedder, 
             mode="train", device=device, recycle_func=recycle_func
         )
 
@@ -506,7 +506,6 @@ def infer_from_seqs(seq_list, model, embedder,
         * seq_list: list of str. Protein sequences in FASTA format
         * model: torch.nn.Module pytorch model
         * embedder: torch.nn.Module pytorch model. 
-        * batch_converter: function to prepare input tokens for the embedder. 
         * recycle_func: func -> int. number of recycling iterations. a lower value 
             makes prediction faster. Past 10, improvement is marginal.
         * device: str or torch.device. Device for inference. CPU is slow. 
