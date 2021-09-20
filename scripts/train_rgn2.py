@@ -318,5 +318,14 @@ def get_training_schedule(args):
 
 
 if __name__ == '__main__':
+    # # new run
+    # nohup python rgn2-replica/scripts/train_rgn2.py --device cuda:3 --wb_entity hypnopump17 --wb_proj rgn2_replica \
+    # --run_name RGN2X_vanillaLSTM_full_run --min_len_valid 0 --xray 1 > RGN2X_vanillaLSTM_full_run_logs.txt 2>&1 &
+
+    # # continue
+    # nohup python rgn2-replica/scripts/train_rgn2.py --device cuda:3 --wb_entity hypnopump17 --wb_proj rgn2_replica \
+    # --resume_name rgn2_models/RGN2X_vanillaLSTM_full_run@_32K.pt --resume_iters 32000 \
+    # --run_name RGN2X_vanillaLSTM_full_run --min_len_valid 0 --xray 1 > RGN2X_vanillaLSTM_full_run_logs.txt 2>&1 &
+
     args = parse_arguments()
     init_and_train(args)
