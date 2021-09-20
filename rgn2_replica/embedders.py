@@ -1,4 +1,5 @@
 import torch
+from rgn2_replica.rgn2_utils import *
     
 
 class ClaspEmbedder(torch.nn.Module):
@@ -23,9 +24,19 @@ class ClaspEmbedder(torch.nn.Module):
         self.clasp_bioseq_encoder.eval()
 
     def forward(self, aa_seq):
+        """ Generates embeddings. 
+            MP-NeRF: https://github.com/EleutherAI/mp_nerf
+            Inputs: 
+            * aa_seq: list of FASTA strs or 
+                      torch.Tensor (B, L) according to MP-NeRF encoding
+        """
+        # format
+        if isinstance(aa_seqs, torch.Tensor): 
+            aa_seq = ids_to_embed_input(to_cpu(aa_seqs).tolist())
+
         with torch.no_grad():
             tokenized_seq = self.tokenizer(aa_seq, context_length=len(aa_seq), return_mask=False)
-            all_embeddings = self.clasp_bioseq_encoder(tokenized_seq.unsqueeze(0).to(self.device), return_all_embeddings=True)
+            all_embeddings = self.clasp_bioseq_encoder(to_device(tokenized_seq.unsqueeze(0), self.device), return_all_embeddings=True)
 
             # drop CLS embedding, return per-token embeddings only
             return all_embeddings[:, 1:]
@@ -40,18 +51,31 @@ class EsmEmbedder(torch.nn.Module):
         self.batch_converter = alphabet.get_batch_converter()
         self.device = device
 
-    def forward(self, aa_seq):
+    def forward(self, aa_seqs):
+        """ Generates embeddings. 
+            MP-NeRF: https://github.com/EleutherAI/mp_nerf
+            Inputs: 
+            * aa_seq: list of FASTA strs or 
+                      torch.Tensor (B, L) according to MP-NeRF encoding
+        """
+        # format
+        if isinstance(aa_seqs, torch.Tensor): 
+            aa_seq = ids_to_embed_input(to_cpu(aa_seqs).tolist())
         # use ESM transformer
         REPR_LAYER_NUM = 33
-        max_seq_len = len(aa_seq)
+        max_seq_len = max([len(aa_seq) for aa_seq in aa_seqs])
 
-        _, _, batch_tokens = self.batch_converter([(None, aa_seq)])
+        batch_labels, batch_strs, batch_tokens = self.batch_converter(aa_seq)
 
         with torch.no_grad():
-            results = self.embedder(batch_tokens.to(self.device), repr_layers=[REPR_LAYER_NUM], return_contacts=False)
-
+            results = self.embedder( 
+                to_device(batch_tokens, self.device), 
+                repr_layers=[REPR_LAYER_NUM], 
+                return_contacts=False
+            )
         # index 0 is for start token. so take from 1 one
-        return results["representations"][REPR_LAYER_NUM][..., 1:max_seq_len+1, :]
+        token_reps = results["representations"][REPR_LAYER_NUM][..., 1:max_seq_len+1, :]
+        return token_reps.detach()
 
 
 def get_embedder(config, device):

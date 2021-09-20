@@ -24,7 +24,7 @@ except:
 
 
 
-def batched_inference(*args, model, embedder, batch_converter=None,
+def batched_inference(*args, model, embedder,
                              mode="test", device="cpu", recycle_func=lambda x: 1):
     """ Inputs: 
         * args: iterable of outputs from mp_nerf.utils.get_prot()
@@ -78,10 +78,12 @@ def batched_inference(*args, model, embedder, batch_converter=None,
             mask[i, :length-2] * mask[i, 1:length-1] * mask[i, 2:length]
         )
         angles_mask_[i, 2:length-1, 0] = (
-            mask[i, :length-3] * mask[i, 1:length-2] * mask[i, 2:length-1], mask[i, 3:length]
+            mask[i, :length-3] * mask[i, 1:length-2] * mask[i, 2:length-1] * mask[i, 3:length]
         )
     # replace nan and (angles whose coords are not fully known) by 0.
-    angles_label_[~angles_mask] = 0.
+    # later don't count them 
+    # angles_label_[~angles_mask_] = 0.
+    angles_label_[angles_label_ != angles_label_] = 0.
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
     # include angles of previous AA as input
@@ -95,7 +97,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     if isinstance(embedder, torch.nn.Embedding): 
         embedds = embedder(int_seq.to(device))
     else: 
-        embedds = get_esm_embedd(int_seq, embedd_model=embedder, batch_converter=batch_converter)
+        embedds = embedder(int_seq)
     
     embedds = torch.cat([
         embedds, 
@@ -135,14 +137,14 @@ def batched_inference(*args, model, embedder, batch_converter=None,
             "int_seq": arg[1], 
             "angles": arg[2],
             "padding_seq": arg[3],
-            "mask": arg[4].bool(),
+            "mask": arg[5].bool(),
             "long_mask": long_mask[i, :arg[1].shape[-1]],
-            "pid": arg[5],
+            "pid": arg[6],
             # labels
             "true_coords": true_coords[i:i+1, :arg[1].shape[-1]*14], # (1, (L C), 3)
             "coords": coords[i:i+1, :arg[1].shape[-1]],              # (1, L, C, 3)
             "ca_trace": ca_trace[i:i+1, :arg[1].shape[-1]],          # (1, L, 3)
-            "angles_label": angles_label_[i:i+1, :arg[1].shape[-1]] # (1, L, 2)
+            "angles_label": angles_label_[i:i+1, :arg[1].shape[-1]], # (1, L, 2)
             "points_label": points_label[i:i+1, :arg[1].shape[-1]],  # (1, L, 2, 2)
             "frames_labels": frames_labels[i, :arg[1].shape[-1]],    # (L, 3, 3)
             # inputs
@@ -158,7 +160,7 @@ def batched_inference(*args, model, embedder, batch_converter=None,
     )
 
 
-def inference(*args, model, embedder, batch_converter=None, 
+def inference(*args, model, embedder, 
                      mode="train", device="cpu", recycle_func=lambda x: 1):
     """ Inputs: 
         * args: output from mp_nerf.utils.get_prot()
@@ -201,7 +203,8 @@ def inference(*args, model, embedder, batch_converter=None,
         mask[i, :-3] * mask[i, 1:-2] * mask[i, 2:-1], mask[i, 3:]
     )
     # replace nan and (angles whose coords are not fully known) by 0.
-    angles_label_[~angles_mask] = 0.
+    # angles_label_[~angles_mask_] = 0.
+    angles_label_[angles_label_ != angles_label_] = 0.
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
     # include angles of previous AA as input
@@ -213,9 +216,9 @@ def inference(*args, model, embedder, batch_converter=None,
 
     # PREDICT
     if isinstance(embedder, torch.nn.Embedding): 
-        embedds = embedder(int_seq)
+        embedds = embedder(int_seq.to(device))
     else: 
-        embedds = get_esm_embedd(int_seq, embedd_model=embedder, batch_converter=batch_converter)
+        embedds = embedder(int_seq)
     
     embedds = torch.cat([
         embedds, 
@@ -273,7 +276,7 @@ def inference(*args, model, embedder, batch_converter=None,
     }
 
 
-def predict(get_prot_, steps, model, embedder, batch_converter=None, return_preds=True,
+def predict(get_prot_, steps, model, embedder, return_preds=True,
          accumulate_every=1, log_every=None, seed=None, wandbai=False, 
          recycle_func=lambda x: 1, mode="test"):
     """ Performs a batch prediction. 
@@ -312,7 +315,7 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
             prots = [ next(get_prot_) for i in range(accumulate_every) ]
             infer_batch = batched_inference(
                 *prots, 
-                model=model, embedder=embedder, batch_converter=batch_converter, 
+                model=model, embedder=embedder, 
                 mode=mode, device=device, recycle_func=recycle_func
             )
         # calculate metrics || calc loss terms || baselines for next-term: torsion=2, fape=0.95
@@ -320,8 +323,8 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
             # discard 0. angles (result of unknown coord, padding, etc)
             angle_mask = infer["angles_label"] != 0.
             torsion_loss = mp_nerf.ml_utils.torsion_angle_loss(
-                pred_points=infer["points_preds"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
-                true_points=infer["points_label"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
+                pred_points=infer["points_preds"][:, :-1], # [angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
+                true_points=infer["points_label"][:, :-1], # [angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
             )
 
             # violation loss btween calphas - L1
@@ -378,7 +381,7 @@ def predict(get_prot_, steps, model, embedder, batch_converter=None, return_pred
     return preds_list, metrics_list, metrics_stats
 
 
-def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f=None, 
+def train(get_prot_, steps, model, embedder, optim, loss_f=None, 
           clip=None, accumulate_every=1, log_every=None, seed=None, wandbai=False, 
           recycle_func=lambda x: 1): 
     """ Performs a batch prediction. 
@@ -414,7 +417,7 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
         prots = [ next(get_prot_) for i in range(accumulate_every) ]
         infer_batch = batched_inference(
             *prots, 
-            model=model, embedder=embedder, batch_converter=batch_converter, 
+            model=model, embedder=embedder, 
             mode="train", device=device, recycle_func=recycle_func
         )
 
@@ -424,8 +427,8 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
             # calc loss terms 
             angle_mask = infer["angles_label"] != 0.
             torsion_loss = mp_nerf.ml_utils.torsion_angle_loss(
-                pred_points=infer["points_preds"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
-                true_points=infer["points_label"][angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
+                pred_points=infer["points_preds"][:, :-1], # [angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
+                true_points=infer["points_label"][:, :-1], # [angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
             )
 
             # violation loss btween calphas - L1
@@ -496,14 +499,13 @@ def train(get_prot_, steps, model, embedder, optim, batch_converter=None, loss_f
 ## MAKING REAL PREDICTIONS ##
 #############################
 
-def infer_from_seqs(seq_list, model, embedder, batch_converter, 
+def infer_from_seqs(seq_list, model, embedder, 
                     recycle_func=lambda x: 10, device="cpu"): 
     """ Infers structures for a sequence of proteins. 
         Inputs: 
         * seq_list: list of str. Protein sequences in FASTA format
         * model: torch.nn.Module pytorch model
         * embedder: torch.nn.Module pytorch model. 
-        * batch_converter: function to prepare input tokens for the embedder. 
         * recycle_func: func -> int. number of recycling iterations. a lower value 
             makes prediction faster. Past 10, improvement is marginal.
         * device: str or torch.device. Device for inference. CPU is slow. 
@@ -524,7 +526,10 @@ def infer_from_seqs(seq_list, model, embedder, batch_converter,
     mask = int_seq != 21 # tokens to predict
 
     # get embeddings
-    embedds = get_esm_embedd(int_seq, embedd_model=embedder, batch_converter=batch_converter)
+    if isinstance(embedder, torch.nn.Embedding): 
+        embedds = embedder(int_seq.to(device))
+    else: 
+        embedds = embedder(int_seq)
     embedds = torch.cat([
         embedds, 
         torch.zeros_like(embedds[..., -4:])

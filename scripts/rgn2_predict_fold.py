@@ -24,27 +24,28 @@ if __name__ == "__main__":
     parser.add_argument("--input", help="FASTA or MultiFASTA with protein sequences to predict")
     parser.add_argument("--batch_size", type=int, default=1, help="batch size for prediction")
     # model
+    parser.add_argument("--embedder_model", type=str, help="esm1b")
     parser.add_argument("--model", type=str, help="Model file for prediction")
     parser.add_argument("--rosetta_refine", type=int, default=0, help="refine output with Rosetta. 0 for no refinement")
     parser.add_argument("--rosetta_relax", type=int, default=0, help="relax output with Rosetta. 0 for no relax.")
+    parser.add_argument("--coord_constraint", type=float, default=1.0, help="constraint for Rosetta relax. higher=stricter.")
     parser.add_argument("--recycle", default=10, help="Recycling iterations")
-    parser.add_argument("--device", default=None, help="CUDA device number. None for CPU (slow!)")
+    parser.add_argument("--device", default="cpu", help="['cpu', 'cuda:0', 'cuda:1', ...], cpu is slow!")
     # outputs
     parser.add_argument("--output_path", type=str, default=None, # prot_id.fasta -> prot_id_0.fasta,
                         help="path for output .pdb files. Defaults to input name + seq num")
     args = parser.parse_args()
     # mod parsed args
-    args.device = "cpu" if args.device is None else "cuda:"+str(args.device)
     if args.output_path is None: 
         args.output_path = args.input.replace(".fasta", "_")
 
     # get sequences
-    seq_list = seqs_from_fasta(args.input)
+    seq_list, seq_names = seqs_from_fasta(args.input, names=True)
 
     # predict structures
     model = RGN2_Naive(
         layers = 2, 
-        emb_dim = 1280+4,
+        emb_dim = args.emb_dim+4,
         hidden = 1024, 
         bidirectional = True, 
         mlp_hidden = [128, 4],
@@ -56,9 +57,7 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load(args.model))
     model = model.eval()
     # # Load ESM-1b model
-    embedder, alphabet = esm.pretrained.esm1b_t33_650M_UR50S()
-    batch_converter = alphabet.get_batch_converter()
-    embedder = embedder.to(args.device)
+    embedder = get_embedder(args, device)
 
     # batch wrapper
     pred_dict = {}
@@ -70,7 +69,6 @@ if __name__ == "__main__":
             seq_list[args.batch_size*i : args.batch_size*(i+1)], 
             model = model, 
             embedder = embedder, 
-            batch_converter = batch_converter,
             recycle_func=lambda x: int(args.recycle),
             device=args.device
         )
@@ -85,7 +83,7 @@ if __name__ == "__main__":
             pred_dict["int_seq"][i].cpu(), 
             crd = pred_dict["coords"][i].reshape(-1, 3).cpu() 
         ) 
-        out_files.append( args.output_path+str(i)+".pdb" )
+        out_files.append( args.output_path+str(i)+"_"+seq_names[i]+".pdb" )
         struct_pred.to_pdb( out_files[-1] )
  
         print("Saved", out_files[-1])
@@ -100,7 +98,7 @@ if __name__ == "__main__":
             if args.rosetta_relax == 0: 
                 quick_refine(
                     in_pdb = out_files[i],
-                    out_pdb = out_files[i][:-4]+"_refined_relaxed.pdb",
+                    out_pdb = out_files[i][:-4]+"_refined.pdb",
                     min_iter = args.rosetta_refine
                 )
             # refine and relax
@@ -109,7 +107,8 @@ if __name__ == "__main__":
                     out_files[i], 
                     out_pdb=out_files[i][:-4]+"_refined_relaxed.pdb", 
                     min_iter = args.rosetta_refine, 
-                    relax_iter = args.rosetta_relax
+                    relax_iter = args.rosetta_relax,
+                    coord_constraint = args.coord_constraint,
                 )
             print(out_files[i], "was refined successfully")
 
