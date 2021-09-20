@@ -82,7 +82,7 @@ def batched_inference(*args, model, embedder,
         )
     # replace nan and (angles whose coords are not fully known) by 0.
     # later don't count them 
-    angles_label_[~angles_mask_] = 0.
+    # angles_label_[~angles_mask_] = 0.
     angles_label_[angles_label_ != angles_label_] = 0.
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
@@ -203,7 +203,7 @@ def inference(*args, model, embedder,
         mask[i, :-3] * mask[i, 1:-2] * mask[i, 2:-1], mask[i, 3:]
     )
     # replace nan and (angles whose coords are not fully known) by 0.
-    angles_label_[~angles_mask_] = 0.
+    # angles_label_[~angles_mask_] = 0.
     angles_label_[angles_label_ != angles_label_] = 0.
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
