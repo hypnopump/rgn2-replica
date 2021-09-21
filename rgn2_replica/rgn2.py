@@ -2,6 +2,7 @@
 import os
 import sys
 from typing import Optional, Tuple, List
+from functools import Partial
 # science
 import numpy as np
 # ML
@@ -481,13 +482,13 @@ class RGN2_Naive(torch.nn.Module):
             "GRU": torch.nn.GRU,
             "mLSTM": mLSTM,
             "peepLSTM": partial(LSTM, peephole=True),
-            "peepmLSTM": partial(mLSTM, peephole=True)
+            "peepmLSTM": partial(mLSTM, peephole=True),
         }
         act_types = {
             "relu": torch.nn.ReLU, 
             "silu": torch.nn.SiLU,
             "aconc": AconC, 
-            "relu_square": SqReLU
+            "relu_square": SqReLU,
         }
         # store params
         self.layer_type = layer_type
