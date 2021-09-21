@@ -2,7 +2,7 @@
 import os
 import sys
 from typing import Optional, Tuple, List
-from functools import Partial
+from functools import partial
 # science
 import numpy as np
 # ML
