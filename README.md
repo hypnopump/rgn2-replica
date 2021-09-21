@@ -41,7 +41,7 @@ This will start the run using sample dataset in repo directory on CPU.
 		* [x] ~~Simple LSTM with:~~ 
 		    * [x] ~~Inputs (B, L, emb_dim)~~
 		    * [x] ~~Outputs (B, L, 4) (4 features which should be outputs of linear projections)~~
-	* [ ] Find a good (and reproducible) training scheme
+	* [x] ~~Find a good (and reproducible) training scheme~~ in collab w/ [@Serhiy-Shekhovtsov](https://github.com/Serhiy-Shekhovtsov)
 	* [x] ~Benchmark regression vs classification of torsional alphabet~
 * [ ] **Language Model**: 
 	* [x] ~~basic tokenizer~~ by [@gurvindersingh](https://github.com/gurvindersingh)
@@ -62,16 +62,16 @@ This will start the run using sample dataset in repo directory on CPU.
 	* [ ] Sequence preprocessing for AminoBERT
 		* [x] ~~inverted fragments~~
 		* [x] ~~sequence masking~~
-		* [x] ~~loss function wrapper v1~~ by [@DrHB](https://github.com/DrHB)
+		* [x] ~~loss function wrapper v1~~ by [@Serhiy-Shekhovtsov](https://github.com/Serhiy-Shekhovtsov)
 		* [x] ~~Sample dataset~~ by [@gurvindersingh](https://github.com/gurvindersingh)
 		* [ ] Dataloder
 		* [ ] ...
 
-* [ ] Contribute Data Infra for training: 
+* [x] Contribute Data Infra for training: 
 	* [x] Sequences: UniParc sequences, etc [@gurvindersingh](https://github.com/gurvindersingh)
 	* [x] Structures: will use the amazing [sidechainnet](https://github.com/jonathanking/sidechainnet) work by Jonathan King  
 
-* [ ] Contribute Rosetta Scripts ( contact me by email (ericalcaide1@gmai.com) / [discord](https://discord.gg/VpPpa9EZ) to get a key for Rosetta if interested in doing this part. )
+* [x] ~Contribute Rosetta Scripts~ by [@jeffreyruffolo](https://github.com/jeffreyruffolo)
 
 * **NOTES**: 
 * Use functionality provided in [MP-NeRF](https://github.com/EleutherAI/mp_nerf) wherever possible (avoid repetition). 

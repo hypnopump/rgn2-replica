@@ -86,10 +86,146 @@ def pred_post_process(points_preds: torch.Tensor,
     return points_preds, ca_trace_pred, frames_preds, wrapper_pred
 
 
-# adapt LSTM to batch api
+class SqReLU(torch.jit.ScriptModule):
+    r""" ACON activation (activate or not).
+    # AconC: (p1*x-p2*x) * sigmoid(beta*(p1*x-p2*x)) + p2*x, beta is a learnable parameter
+    # according to "Activate or Not: Learning Customized Activation" <https://arxiv.org/pdf/2009.04759.pdf>.
+    """
+
+    def __init__(self):
+        super().__init__()
+        return
+
+    @torch.jit.script_method
+    def forward(self, x):
+        """ Inputs (B, L, C) --> Outputs (B, L, C). """
+        return F.relu(x)**2
+
+
+# from: https://github.com/nmaac/acon/blob/main/acon.py
+# adapted for MLP and scripted. 
+class AconC(torch.jit.ScriptModule):
+    r""" ACON activation (activate or not).
+    # AconC: (p1*x-p2*x) * sigmoid(beta*(p1*x-p2*x)) + p2*x, beta is a learnable parameter
+    # according to "Activate or Not: Learning Customized Activation" <https://arxiv.org/pdf/2009.04759.pdf>.
+    """
+
+    def __init__(self, width):
+        super(AconC, self).__init__()
+        self.p1 = torch.nn.Parameter(torch.randn(width))
+        self.p2 = torch.nn.Parameter(torch.randn(width))
+        self.beta = torch.nn.Parameter(torch.ones(width))
+
+    @torch.jit.script_method
+    def forward(self, x):
+        """ Inputs (B, L, C) --> Outputs (B, L, C). """
+        p1, p2, beta = self.p1, self.p2, self.beta
+        while x.dim() > p1.dim(): 
+            p1 = p1.unsqueeze(0)
+            p2 = p2.unsqueeze(0)
+            beta = beta.unsqueeze(0)
+        return (p1 * x - p2 * x) * torch.sigmoid(beta * (p1 * x - p2 * x)) + p2 * x
+
+
+# from https://github.com/FlorianWilhelm/mlstm4reco/blob/master/src/mlstm4reco/layers.py
+# adapted to match pytorch's implementation
+# from https://github.com/FlorianWilhelm/mlstm4reco/blob/master/src/mlstm4reco/layers.py
+# adapted to match pytorch's implementation
+class mLSTM(torch.nn.modules.rnn.RNNBase):
+    def __init__(self, input_size, hidden_size, bias=True, num_layers=1, 
+                 batch_first=True, dropout=0, bidirectional=False, peephole=False):
+        """ Multiplicative LSTM layer which supports batching by mask
+            * input_size: read pytorch docs - LSTM
+            * hidden_size: read pytorch docs - LSTM
+            * bias: read pytorch docs - LSTM
+            * num_layers: int. number of layers. only supports 1 for now. 
+            * batch_first: bool. input should be (B, L, D) if True, 
+                                (L, B, D) if False
+            * dropout: float. amount of dropout to add to inputs. 
+                              Not supported
+            * bidirectional: bool. whether layer is bidirectional. Not supported. 
+            * peephole: bool. whether to add peephole connections ( as the 
+                              original Schmidhuber paper: 
+                              http://www.bioinf.jku.at/publications/older/2604.pdf )
+        """
+        super().__init__(
+            mode='LSTM', input_size=input_size, hidden_size=hidden_size,
+                 num_layers=num_layers, bias=bias, batch_first=batch_first,
+                 dropout=dropout, bidirectional=bidirectional)
+
+        self.num_layers = num_layers
+        self.batch_first = batch_first
+        self.peephole = peephole
+
+        w_im = torch.Tensor(self.num_layers, hidden_size, input_size)
+        w_hm = torch.Tensor(self.num_layers, hidden_size, hidden_size)
+        b_im = torch.Tensor(self.num_layers, hidden_size)
+        b_hm = torch.Tensor(self.num_layers, hidden_size)
+        self.weight_ih_l = torch.nn.Parameter(w_im) # input - hidden (forget)
+        self.weight_hh_l = torch.nn.Parameter(w_hm) # hidden - hidden (update)
+        self.bias_ih_l = torch.nn.Parameter(b_im)   # input - hidden (forget)
+        self.bias_hh_l = torch.nn.Parameter(b_hm)   # hidden - hidden (update)
+
+        if self.peephole: 
+            self.lstm_cell = PeepLSTMCell(input_size, hidden_size, bias)
+        else: 
+            self.lstm_cell = torch.nn.modules.rnn.LSTMCell(input_size, hidden_size, bias)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1.0 / np.sqrt(self.hidden_size) 
+        for weight in self.parameters():
+            weight.data.uniform_(-stdv, stdv)
+
+    def forward(self, input_: torch.Tensor, 
+        hx_ : Optional[torch.Tensor]=None, 
+        cx_ : Optional[torch.Tensor]=None,
+        mask: Optional[torch.Tensor]=None
+    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """ Accepts inputs of variable length and resolves by masking. 
+            ~Assumes sequences are ordered by descending length.~
+        """
+        device = input_.device
+        n_batch, n_seq, n_feat = input_.size()
+
+        # same as in https://pytorch.org/docs/stable/_modules/torch/nn/modules/rnn.html#LSTM
+        if hx_ is None:
+            hx_ = torch.zeros(input_.size(0), self.hidden_size, dtype=input_.dtype, 
+                                device=device)
+        if cx_ is None: 
+            cx_ = torch.zeros(input_.size(0), self.hidden_size, dtype=input_.dtype, 
+                                device=device)
+        if mask is None: 
+            mask = torch.ones(input_.shape[:-1], dtype=torch.bool, device=device)
+        
+        steps = []
+        unbind_dim = 1 if self.batch_first else 0
+        for seq, mask_ in zip(input_.unbind(unbind_dim), mask.unbind(unbind_dim)):
+            for k in range(self.num_layers):
+                # select appropiate by masking
+                masked_input = seq[mask_] # (B, D) -> (D,)
+                masked_hx, masked_cx = hx_[mask_], cx_[mask_]
+
+                # pass
+                masked_hx = F.linear(masked_input, self.weight_ih_l[k], self.bias_ih_l[k]) * \
+                            F.linear(masked_hx, self.weight_hh_l[k], self.bias_hh_l[k])
+                hx_[mask_], cx_[mask_]  = self.lstm_cell(masked_input, (masked_hx, masked_cx))
+
+                # record hiddens
+                steps.append(hx_.clone())
+                
+        outs = torch.stack(steps, dim=1)
+        if not self.batch_first:
+            outs = outs.transpose(0,1)
+            
+        return outs, (hx_, cx_)
+
+
+# adapt LSTM to same api
 class LSTM(torch.nn.modules.rnn.RNNBase):
     def __init__(self, input_size, hidden_size, bias=True, num_layers=1, 
-                 batch_first=True, dropout=0, bidirectional=False):
+                 batch_first=True, dropout=0, bidirectional=False, peephole=False):
         """ Custom LSTM layer which supports batching by mask
             * input_size: read pytorch docs - LSTM
             * hidden_size: read pytorch docs - LSTM
@@ -100,6 +236,9 @@ class LSTM(torch.nn.modules.rnn.RNNBase):
             * dropout: float. amount of dropout to add to inputs. 
                               Not supported
             * bidirectional: bool. whether layer is bidirectional. Not supported. 
+            * peephole: bool. whether to add peephole connections ( as the 
+                              original Schmidhuber paper: 
+                              http://www.bioinf.jku.at/publications/older/2604.pdf )
         """
         super().__init__(
             mode='LSTM', input_size=input_size, hidden_size=hidden_size,
@@ -108,8 +247,12 @@ class LSTM(torch.nn.modules.rnn.RNNBase):
 
         self.num_layers = num_layers
         self.batch_first = batch_first
+        self.peephole = peephole
 
-        self.lstm_cell = torch.nn.modules.rnn.LSTMCell(input_size, hidden_size, bias)
+        if self.peephole: 
+            self.lstm_cell = PeepLSTMCell(input_size, hidden_size, bias)
+        else: 
+            self.lstm_cell = torch.nn.modules.rnn.LSTMCell(input_size, hidden_size, bias)
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -157,6 +300,56 @@ class LSTM(torch.nn.modules.rnn.RNNBase):
             outs = outs.transpose(0,1)
             
         return outs, (hx_, cx_)
+
+# fadapted rom https://discuss.pytorch.org/t/peephole-lstm-cell-implementation/116531 
+# no support for multiple layers
+class PeepLSTMCell(torch.jit.ScriptModule):
+    
+    def __init__(self, input_size, hidden_size, bias=True):
+        super().__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+
+        self.weight_ih = torch.nn.Parameter(torch.Tensor(4 * hidden_size, input_size))
+        self.weight_hh = torch.nn.Parameter(torch.Tensor(4 * hidden_size, hidden_size))
+        
+        self.bias_ih = torch.nn.Parameter(torch.Tensor(4 * hidden_size))
+        self.bias_hh = torch.nn.Parameter(torch.Tensor(4 * hidden_size))
+
+        self.weight_ch_i = torch.nn.Parameter(torch.Tensor(hidden_size))
+        self.weight_ch_f = torch.nn.Parameter(torch.Tensor(hidden_size))        
+        self.weight_ch_o = torch.nn.Parameter(torch.Tensor(hidden_size))
+
+        self.reset_parameter()        
+
+    @torch.jit.unused
+    def reset_parameter(self):
+        stdv = 1.0 / math.sqrt(self.hidden_size)
+        for weight in self.parameters():
+            torch.nn.init.uniform_(weight, -stdv, stdv)
+
+    @torch.jit.script_method
+    def forward(self, 
+        input: torch.Tensor, 
+        state: Tuple[torch.Tensor, torch.Tensor]
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+        hx, cx = state
+        xh = ( torch.mm(input, self.weight_ih.t()) + self.bias_ih + \
+               torch.mm(hx, self.weight_hh.t()) + self.bias_hh)
+
+        i, f, _c, o = xh.chunk(4, 1)
+
+        i = torch.sigmoid(i + (self.weight_ch_i * cx))
+        f = torch.sigmoid(f + (self.weight_ch_f * cx))
+        _c = torch.tanh(_c)
+
+        cy = (f * cx) + (i * _c)
+
+        o = torch.sigmoid(o + (self.weight_ch_o * cy))
+        hy = o * torch.tanh(cy)
+
+        return hy, cy
 
 
 ##############
@@ -286,10 +479,15 @@ class RGN2_Naive(torch.nn.Module):
         layer_types = {
             "LSTM": LSTM, # torch.nn.LSTM,
             "GRU": torch.nn.GRU,
+            "mLSTM": mLSTM,
+            "peepLSTM": partial(LSTM, peephole=True),
+            "peepmLSTM": partial(mLSTM, peephole=True)
         }
         act_types = {
             "relu": torch.nn.ReLU, 
             "silu": torch.nn.SiLU,
+            "aconc": AconC, 
+            "relu_square": SqReLU
         }
         # store params
         self.layer_type = layer_type
@@ -328,8 +526,8 @@ class RGN2_Naive(torch.nn.Module):
                 ) for i in range(layers) 
             ])
 
-        # jit-COMPILE if custom LSTM
-        if isinstance(self.stacked_lstm_f, LSTM):
+        # jit-COMPILE if mLSTM or custom LSTM
+        if isinstance(self.stacked_lstm_f, mLSTM) or isinstance(self.stacked_lstm_f, LSTM):
             self.stacked_lstm_f = torch.nn.ModuleList([
                 torch.jit.script(self.stacked_lstm_f[i]) for i in range(self.num_layers)
             ])
@@ -340,7 +538,7 @@ class RGN2_Naive(torch.nn.Module):
 
         self.last_mlp = torch.nn.Sequential(
             torch.nn.Linear(hidden_eff(self.hidden[-1]), self.mlp_hidden[0]),
-            act_types[act](),
+            act_types[act]() if act != "aconc" else act_types[act](width=self.mlp_hidden[0]),
             torch.nn.Linear(self.mlp_hidden[0], self.mlp_hidden[-1]) 
         )
 
@@ -350,6 +548,28 @@ class RGN2_Naive(torch.nn.Module):
                 (2*torch.rand(1, 1, 2, self.mlp_hidden[-1]//2) - 1) * np.pi # final pred / 2 
             ) 
             self.register_parameter("angles", self.angs)
+
+
+        # init forget gates to open
+        self.apply(self.init_)
+    
+
+    def init_(self, module):
+        """ initialize biases of LSTM forget gates to 1. so gradients flow initially
+            from: http://proceedings.mlr.press/v37/jozefowicz15.pdf
+            Recommends init to 1-3
+
+            pytorch implements 2x biases - b_ih + b_hh -> 1+1 = 2.
+        """
+        if type(module) in {torch.nn.LSTM}:
+            # ONLY WORKS FOR 1 LAYER - LSTM stores in tuple, not in stacked tensor
+            shape = module.bias_ih_l0.shape[-1]
+            torch.nn.init.constant_(module.bias_ih_l0[shape//4:shape//2], 1.)
+            torch.nn.init.constant_(module.bias_hh_l0[shape//4:shape//2], 1.)
+        elif type(module) in {mLSTM, LSTM}:
+            shape = module.lstm_cell.bias_ih.shape[-1]
+            # torch.nn.init.constant_(module.lstm_cell.bias_ih[ shape//4 : shape//2 ], 1.) 
+            # torch.nn.init.constant_(module.lstm_cell.bias_hh[ shape//4 : shape//2 ], 1.)   
 
 
     def forward(self, x:torch.Tensor, mask: Optional[torch.Tensor] = None,
