@@ -13,6 +13,7 @@ from einops import rearrange, repeat
 # custom
 import mp_nerf
 from rgn2_replica.utils import *
+import en_transformer
 
 
 #######################
@@ -42,12 +43,16 @@ def prediction_wrapper(x: torch.Tensor, pred: torch.Tensor):
 
 def pred_post_process(points_preds: torch.Tensor, 
                       seq_list: Optional[List] = None,
-                      mask: Optional[torch.Tensor] = None):
+                      mask: Optional[torch.Tensor] = None, 
+                      model = None, 
+                      refine_args = {}):
     """ Converts an angle-based output to structures. 
         Inputs:
         * points_preds: (B, L, 2, 2)
         * seq_list: (B,) list of str. FASTA sequences. Optional. build scns
         * mask: (B, L) bool tensor. 
+        * model: subclass of torch.nn.Module. prediction model w/ potential refiner
+        * model_args: dict. arguments to pass to model for refinement
         Outputs: 
         * ca_trace_pred: (B, L, 14, 3)
         * frames_preds: (B, L, 3, 3)
@@ -70,6 +75,17 @@ def pred_post_process(points_preds: torch.Tensor,
         )
     ) 
     ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+
+    if model is not None: 
+        if model.refiner is not None: 
+            adj_mat = torch.from_numpy(
+                np.eye(mask.shape[-1], k=1) + np.eye(mask.shape[-1], k=1).T
+            ).bool().to(device).unsqueeze(0)
+            feats, coors, r_iters = model.refiner(
+                atoms=None, # embeddings
+                coors=ca_trace_pred[:, :, 1], 
+                adj_mat=adj_mat)
+            ca_trace_pred[:, :, 1] = coors
     
     # calc BB - can't do batched bc relies on extremes.
     wrapper_pred = torch.zeros_like(ca_trace_pred)
@@ -88,10 +104,7 @@ def pred_post_process(points_preds: torch.Tensor,
 
 
 class SqReLU(torch.jit.ScriptModule):
-    r""" ACON activation (activate or not).
-    # AconC: (p1*x-p2*x) * sigmoid(beta*(p1*x-p2*x)) + p2*x, beta is a learnable parameter
-    # according to "Activate or Not: Learning Customized Activation" <https://arxiv.org/pdf/2009.04759.pdf>.
-    """
+    r""" Squared ReLU activation from https://arxiv.org/abs/2109.08668v1. """
 
     def __init__(self):
         super().__init__()
@@ -353,6 +366,7 @@ class PeepLSTMCell(torch.jit.ScriptModule):
         return hy, cy
 
 
+
 ##############
 ### MODELS ###
 ##############
@@ -460,7 +474,7 @@ class RGN2_Transformer(torch.nn.Module):
 class RGN2_Naive(torch.nn.Module): 
     def __init__(self, layers=3, emb_dim=1280, hidden=256,
                  bidirectional=False, mlp_hidden=[32, 4], layer_type="LSTM",
-                 act="silu", input_dropout=0.0, angularize=False): 
+                 act="silu", input_dropout=0.0, angularize=False, refiner_args={}): 
         """ RGN2 module which turns embeddings into a Cα trace.
             Inputs: 
             * layers: int. number of rnn layers
@@ -474,6 +488,7 @@ class RGN2_Naive(torch.nn.Module):
                                     layers independently
             * angularize: bool. whether to do single-value regression (False)
                                 or predict a set of alphabet torsions (True).
+            * refiner_args: dict. arguments for a global refiner. empty if no ref.
         """
         super(RGN2_Naive, self).__init__()
         hidden_eff = lambda x: x + x*int(bidirectional)
@@ -550,9 +565,13 @@ class RGN2_Naive(torch.nn.Module):
             ) 
             self.register_parameter("angles", self.angs)
 
-
         # init forget gates to open
         self.apply(self.init_)
+
+        # potential global refiner
+        self.refiner = None
+        if len(refiner_args) >= 1: 
+            self.refiner = RGN2_Refiner_Wrapper(**refiner_args)
     
 
     def init_(self, module):
@@ -700,7 +719,39 @@ class RGN2_Naive(torch.nn.Module):
 
 
 
-class Refiner(torch.nn.Module): 
-    """ Refines a protein structure by invoking several Rosetta scripts. """
-    def __init__(self, **kwargs): 
-        return
+class RGN2_Refiner_Wrapper(torch.nn.Module):
+    """ Wraps an engine for global refinement. """
+    def __init__(self, **kwargs)
+        self.kwargs = kwargs
+        # create dict of acceptable inputs
+        self.refiner_args = {
+            k:v for k,v in self.kwargs.items() \
+            if k in set([
+                "dim", "depth", "num_tokens", "rel_pos_emb", "dim_head",
+                "heads", "num_edge_tokens", "edge_dim", "coors_hidden_dim",
+                "neighbors", "only_sparse_neighbors", "num_adj_degrees",
+                "adj_dim", "valid_neighbor_radius", "init_eps", "norm_rel_coors",
+                "norm_coors_scale_init", "use_cross_product", "talking_heads", 
+                "checkpoint", "rotary_theta", "rel_dist_cutoff", "rel_dist_scale",
+            ])
+        }
+        self.refiner = en_transformer.EnTransformer(**self.refiner_args)
+
+    def forward(self, **data_dict): 
+        """ Corrects structure. """
+        r_iters = []
+        for i in range(max(1, data_dict["recycle"])): 
+
+            feats, coors = self.refiner.forward({
+                k:v for k,v in data_dict.items()  \
+                if k in set(["feats", "coors", "edges", "mask", "adj_mat", "return_coor_changes"])
+            })
+            data_dict["feats"], data_dict["coors"] = feats, coors
+
+            if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
+                r_iters.append( coors.detach() ) 
+
+        return feats, coors, r_iters
+
+
+
