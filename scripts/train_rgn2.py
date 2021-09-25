@@ -42,7 +42,7 @@ def parse_arguments():
     parser.add_argument("--num_layers", help="num rnn layers", type=int, default=2)
     parser.add_argument("--emb_dim", help="embedding dimension", type=int, default=1280)
     parser.add_argument("--hidden", help="hidden dimension", type=int, default=1024)
-    parser.add_argument("--act", help="hideen activation", type=str, default="silu")
+    parser.add_argument("--act", help="hidden activation", type=str, default="silu")
     parser.add_argument("--layer_type", help="rnn layer type", type=str, default="LSTM")
     parser.add_argument("--input_dropout", help="input dropout", type=float, default=0.5)
     parser.add_argument("--bidirectional", help="bidirectionality", type=bool, default=0)

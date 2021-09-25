@@ -81,9 +81,13 @@ def pred_post_process(points_preds: torch.Tensor,
             adj_mat = torch.from_numpy(
                 np.eye(mask.shape[-1], k=1) + np.eye(mask.shape[-1], k=1).T
             ).bool().to(device).unsqueeze(0)
+
+            
+            coors = ca_trace_pred[:, :, 1].clone()
+            coors = coors.detach() if "detach" in refine_args else coors 
             feats, coors, r_iters = model.refiner(
-                atoms=None, # embeddings
-                coors=ca_trace_pred[:, :, 1], 
+                atoms=refiner_args["embeddings"], # embeddings
+                coors=coors, 
                 adj_mat=adj_mat)
             ca_trace_pred[:, :, 1] = coors
     
@@ -744,7 +748,7 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
 
             feats, coors = self.refiner.forward({
                 k:v for k,v in data_dict.items()  \
-                if k in set(["feats", "coors", "edges", "mask", "adj_mat", "return_coor_changes"])
+                if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
             })
             data_dict["feats"], data_dict["coors"] = feats, coors
 
