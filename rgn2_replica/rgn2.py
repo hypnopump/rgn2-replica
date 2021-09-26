@@ -726,6 +726,22 @@ class RGN2_Naive(torch.nn.Module):
         return rearrange(angles, "b l a n -> b l (a n)")           # (B, L, 2 * angles)
 
 
+    def load_my_state_dict(self, state_dict):
+        """ Loads a model from state dict.
+            Tolerates both
+            * in-model + out-of-dict and
+            * in-dict + out--of-model
+        """
+        own_state = self.state_dict()
+        for name, param in state_dict.items():
+            if name not in own_state:
+                 continue
+            if isinstance(param, torch.nn.Parameter):
+                # backwards compatibility for serialized parameters
+                param = param.data
+            own_state[name].copy_(param)
+
+
 
 class RGN2_Refiner_Wrapper(torch.nn.Module):
     """ Wraps an engine for global refinement. 
