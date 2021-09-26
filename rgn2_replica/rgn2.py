@@ -750,7 +750,7 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
             'refiner_detach': True,
         })
     """
-    def __init__(self, **kwargs)
+    def __init__(self, **kwargs):
         # add args to class attrs
         for kw, arg in kargs.items()
             self.__dict__[kw] = arg
