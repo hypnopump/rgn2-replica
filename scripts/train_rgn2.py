@@ -152,7 +152,7 @@ def run_train_schedule(dataloaders, embedder, config, args):
                        layer_type=config.layer_type,
                        input_dropout=config.input_dropout,
                        angularize=config.angularize,
-                       refiner_args=refiner_args,
+                       refiner_args=config.refiner_args,
                        ).to(device)
     
     if args.resume_name is not None: 
