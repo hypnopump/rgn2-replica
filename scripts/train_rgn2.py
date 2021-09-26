@@ -49,7 +49,8 @@ def parse_arguments():
     parser.add_argument("--angularize", help="angularization units. 0 for reg", type=int, default=0)
     parser.add_argument("--num_recycles_train", type=int, default=3, 
                         help="number of recycling iters. set to 1 to speed training.",)
-
+    # refiner params
+    parser.add_argument("--refiner_args", help="args for refiner module", type=dict, default={})
     parser.add_argument("--seed", help="Random seed", default=42)
 
     return parser.parse_args()
@@ -108,6 +109,8 @@ def init_wandb_config(args):
     config.bidirectional = bool(args.bidirectional)  # True
     config.max_recycles_train = args.num_recycles_train  #  set up to 1 to speed things
     config.angularize = bool(args.angularize)
+
+    config.refiner_args = dict(refiner_args)
     
     return config
 
@@ -146,6 +149,7 @@ def run_train_schedule(dataloaders, embedder, config, args):
                        layer_type=config.layer_type,
                        input_dropout=config.input_dropout,
                        angularize=config.angularize,
+                       refiner_args=refiner_args,
                        ).to(device)
     
     if args.resume_name is not None: 

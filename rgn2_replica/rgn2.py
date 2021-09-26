@@ -76,20 +76,22 @@ def pred_post_process(points_preds: torch.Tensor,
     ) 
     ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
 
+    # use model's refiner if available
     if model is not None: 
         if model.refiner is not None: 
-            adj_mat = torch.from_numpy(
-                np.eye(mask.shape[-1], k=1) + np.eye(mask.shape[-1], k=1).T
-            ).bool().to(device).unsqueeze(0)
+            for i in range(mask.shape[0]):
+                adj_mat = torch.from_numpy(
+                    np.eye(mask[i].shape[-1], k=1) + np.eye(mask[i].shape[-1], k=1).T
+                ).bool().to(device).unsqueeze(0)
 
-            
-            coors = ca_trace_pred[:, :, 1].clone()
-            coors = coors.detach() if "detach" in refine_args else coors 
-            feats, coors, r_iters = model.refiner(
-                atoms=refiner_args["embeddings"], # embeddings
-                coors=coors, 
-                adj_mat=adj_mat)
-            ca_trace_pred[:, :, 1] = coors
+                coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
+                coors = coors.detach() if model.refiner.refiner_detach else coors 
+                feats, coors, r_iters = model.refiner(
+                    atoms=refiner_args["embedds"][i:i+1, :mask[i].shape[-1]], # embeddings
+                    coors=coors, 
+                    adj_mat=adj_mat
+                )
+                ca_trace_pred[i:i+1, :mask[i].shape[-1], 1] = coors
     
     # calc BB - can't do batched bc relies on extremes.
     wrapper_pred = torch.zeros_like(ca_trace_pred)
@@ -724,9 +726,36 @@ class RGN2_Naive(torch.nn.Module):
 
 
 class RGN2_Refiner_Wrapper(torch.nn.Module):
-    """ Wraps an engine for global refinement. """
+    """ Wraps an engine for global refinement. 
+
+        Input example:  (uses https://github.com/hypnopump/en-transformer)
+        refiner = RGN2_Refiner_Wrapper({
+            'refiner_detach': False, 
+            'dim': 32,
+            'depth': 4,
+            'num_tokens': 1280+4, # 21 for int_seq
+            'rel_pos_emb': True,
+            'dim_head': 32,
+            'heads': 2,
+            'num_edge_tokens': None,
+            'edge_dim': 8,
+            'coors_hidden_dim': 3,
+            'neighbors': 16,
+            'num_adj_degrees': 1,
+            'valid_neighbor_radius': 30,
+            'checkpoint': None, 
+            # now it's about special args
+            'refiner_detach': True,
+        })
+    """
     def __init__(self, **kwargs)
-        self.kwargs = kwargs
+        # add args to class attrs
+        for kw, arg in kargs.items()
+            self.__dict__[kw] = arg
+        # add some args to defaults if not there
+        if "refiner_detach" not in self.__dict__.keys(): 
+            self.__dict__["refiner_detach"] = False
+
         # create dict of acceptable inputs
         self.refiner_args = {
             k:v for k,v in self.kwargs.items() \
