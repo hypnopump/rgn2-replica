@@ -98,7 +98,7 @@ def init_wandb_config(args):
     config.min_len = args.min_len
     config.max_len = args.max_len
     config.xray = bool(args.xray)
-    config.frac_true_torsions = bool(frac_true_torsions)
+    config.frac_true_torsions = bool(args.frac_true_torsions)
 
     # model hyperparams
     config.num_layers = args.num_layers
