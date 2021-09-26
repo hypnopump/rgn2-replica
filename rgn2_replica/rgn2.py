@@ -807,13 +807,14 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
                 k:v for k,v in data_dict.items()  \
                 if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
             }
-            feats, coors = self.refiner.forward(**input_)
-            data_dict["feats"], data_dict["coors"] = feats, coors
+            pred_feats, coors = self.refiner.forward(**input_)
+            data_dict["coors"] = coors
+            # data_dict["feats"] = pred_feats # commented for recycling
 
             if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
                 r_iters.append( coors.detach() ) 
 
-        return feats, coors, r_iters
+        return pred_feats, coors, r_iters
 
 
 
