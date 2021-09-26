@@ -739,7 +739,7 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
             'heads': 2,
             'num_edge_tokens': None,
             'edge_dim': 8,
-            'coors_hidden_dim': 3,
+            'coors_hidden_dim': 16,
             'neighbors': 16,
             'num_adj_degrees': 1,
             'valid_neighbor_radius': 30,

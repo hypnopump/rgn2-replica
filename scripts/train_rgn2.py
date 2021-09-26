@@ -156,7 +156,7 @@ def run_train_schedule(dataloaders, embedder, config, args):
                        ).to(device)
     
     if args.resume_name is not None: 
-        model.load_state_dict(torch.load(args.resume_name))
+        model.load_state_dict(torch.load(args.resume_name, map_location=device))
 
     # 3. Log gradients and model parameters
     wandb.watch(model)
