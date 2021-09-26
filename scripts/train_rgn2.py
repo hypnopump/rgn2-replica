@@ -113,7 +113,7 @@ def init_wandb_config(args):
     config.max_recycles_train = args.num_recycles_train  #  set up to 1 to speed things
     config.angularize = bool(args.angularize)
 
-    config.refiner_args = dict(refiner_args)
+    config.refiner_args = dict(args.refiner_args)
     
     return config
 
