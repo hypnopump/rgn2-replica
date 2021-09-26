@@ -37,6 +37,7 @@ def parse_arguments():
     parser.add_argument("--casp_version", help="SCN dataset version", type=int, default=12)
     parser.add_argument("--scn_thinning", help="SCN dataset thinning", type=int, default=90)
     parser.add_argument("--xray", help="only use xray structures", type=bool, default=0)
+    parser.add_argument("--frac_true_torsions", help="Provide right torsions for some prots", type=bool, default=0)
     # model params
     parser.add_argument("--embedder_model", help="Embedding model to use", default='esm1b')
     parser.add_argument("--num_layers", help="num rnn layers", type=int, default=2)
@@ -96,6 +97,7 @@ def init_wandb_config(args):
     config.min_len = args.min_len
     config.max_len = args.max_len
     config.xray = bool(args.xray)
+    config.frac_true_torsions = bool(frac_true_torsions)
 
     # model hyperparams
     config.num_layers = args.num_layers
@@ -201,6 +203,7 @@ def run_train_schedule(dataloaders, embedder, config, args):
             seed=seed,
             recycle_func=lambda x: random.randint(1, config.max_recycles_train),  # 1
             wandbai=True,
+            config=config,
         )
 
         metric = np.mean([x["drmsd"] for x in metrics_stuff[0][-5*batch_size:]])

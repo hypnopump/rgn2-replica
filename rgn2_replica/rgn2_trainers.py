@@ -25,7 +25,9 @@ except:
 
 
 def batched_inference(*args, model, embedder,
-                             mode="test", device="cpu", recycle_func=lambda x: 1):
+                             mode="test", device="cpu", 
+                             recycle_func=lambda x: 1,
+                             config=None):
     """ Inputs: 
         * args: iterable of outputs from mp_nerf.utils.get_prot()
                 ( seq, int_seq, true_coords, angles, padding_seq, mask, pid )
@@ -35,6 +37,7 @@ def batched_inference(*args, model, embedder,
                       Only works for test atm.
         * device: str or torch.device 
         * recycle_func: func. returns number of reycling iters
+        * config: None or config class.
         Outputs: 
         * (B, L, 4)
     """
@@ -104,6 +107,11 @@ def batched_inference(*args, model, embedder,
         # don't pass angles info - just 0 at start (sin=0, cos=1)
         torch.zeros_like(angles_input) + angles_input[:, :1],
     ], dim=-1)
+
+    if config is not None: 
+        if random.random() < config.frac_true_torsions: 
+            angles_label_input = rearrange(points_label, "... c d -> ... (c d)")
+            embedds[..., angles_label_input.shape[-1]:] = angles_label_input
     
     # PREDICT
     if mode == "train": 
@@ -395,7 +403,7 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
 
 def train(get_prot_, steps, model, embedder, optim, loss_f=None, 
           clip=None, accumulate_every=1, log_every=None, seed=None, wandbai=False, 
-          recycle_func=lambda x: 1): 
+          recycle_func=lambda x: 1, config=None): 
     """ Performs a batch prediction. 
         Can return whole list of preds or just metrics.
         Inputs: 
@@ -410,6 +418,7 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
         * seed: int or None.
         * wandbai: bool. whether to log to W&B
         * recycle_func: func. number of recycle iters per sample
+        * config: None or config class. 
         Outputs: 
         * preds_list: (steps, dict) list
         * metrics_list: (steps, dict) list
@@ -430,7 +439,8 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
         infer_batch = batched_inference(
             *prots, 
             model=model, embedder=embedder, 
-            mode="train", device=device, recycle_func=recycle_func
+            mode="train", device=device, recycle_func=recycle_func, 
+            config=config,
         )
 
         # calculate metrics
