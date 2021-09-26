@@ -803,12 +803,10 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
         """ Corrects structure. """
         r_iters = []
         for i in range(max(1, data_dict["recycle"])):
-            print("data_dict", data_dict) 
             input_ = {
                 k:v for k,v in data_dict.items()  \
                 if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
             }
-            print("input_", input_)
             feats, coors = self.refiner.forward(**input_)
             data_dict["feats"], data_dict["coors"] = feats, coors
 
