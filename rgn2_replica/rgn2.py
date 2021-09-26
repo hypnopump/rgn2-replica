@@ -804,10 +804,12 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
         r_iters = []
         for i in range(max(1, data_dict["recycle"])):
             print("data_dict", data_dict) 
-            feats, coors = self.refiner.forward({
+            input_ = {
                 k:v for k,v in data_dict.items()  \
                 if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
-            })
+            }
+            print("input_", input_)
+            feats, coors = self.refiner.forward(input_)
             data_dict["feats"], data_dict["coors"] = feats, coors
 
             if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
