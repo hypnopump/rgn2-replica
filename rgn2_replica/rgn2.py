@@ -87,7 +87,7 @@ def pred_post_process(points_preds: torch.Tensor,
                 coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
                 coors = coors.detach() if model.refiner.refiner_detach else coors 
                 feats, coors, r_iters = model.refiner(
-                    atoms=refine_args["embedds"][i:i+1, :mask[i].shape[-1]], # embeddings
+                    feats=refine_args["embedds"][i:i+1, :mask[i].shape[-1]], # embeddings
                     coors=coors, 
                     adj_mat=adj_mat,
                     recycle=refine_args["recycle"],
@@ -803,7 +803,6 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
         """ Corrects structure. """
         r_iters = []
         for i in range(max(1, data_dict["recycle"])): 
-            print("datadict: ", data_dict)
             feats, coors = self.refiner.forward({
                 k:v for k,v in data_dict.items()  \
                 if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
