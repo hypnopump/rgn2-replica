@@ -760,7 +760,7 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
 
         # create dict of acceptable inputs
         self.refiner_args = {
-            k:v for k,v in self.kwargs.items() \
+            k:v for k,v in kwargs.items() \
             if k in set([
                 "dim", "depth", "num_tokens", "rel_pos_emb", "dim_head",
                 "heads", "num_edge_tokens", "edge_dim", "coors_hidden_dim",
