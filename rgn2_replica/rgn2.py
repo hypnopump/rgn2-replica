@@ -726,20 +726,30 @@ class RGN2_Naive(torch.nn.Module):
         return rearrange(angles, "b l a n -> b l (a n)")           # (B, L, 2 * angles)
 
 
-    def load_my_state_dict(self, state_dict):
+    def load_my_state_dict(self, state_dict, verbose=True):
         """ Loads a model from state dict.
             Tolerates both
-            * in-model + out-of-dict and
-            * in-dict + out--of-model
+            * in-model + out-of-dict 
+            * in-dict + out-of-model
         """
         own_state = self.state_dict()
+        in_model_out_of_dict = set(own_state.keys())
+        in_dict_out_of_model = set([])
         for name, param in state_dict.items():
             if name not in own_state:
-                 continue
+                in_dict_out_of_model.add(name)
+                continue
+
             if isinstance(param, torch.nn.Parameter):
                 # backwards compatibility for serialized parameters
+                in_model_out_of_dict.remove(name)
                 param = param.data
+
             own_state[name].copy_(param)
+
+        if verbose: 
+            print("in-model + out-of-dict ", "\n", in_model_out_of_dict, sep="")
+            print("in-dict + out-of-model ", "\n", in_dict_out_of_model, sep="")
 
 
 
