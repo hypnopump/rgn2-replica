@@ -90,8 +90,8 @@ def pred_post_process(points_preds: torch.Tensor,
                     atoms=refiner_args["embedds"][i:i+1, :mask[i].shape[-1]], # embeddings
                     coors=coors, 
                     adj_mat=adj_mat,
-                    recyle=1,# model.refiner.recycle
-                    inter_recycle=False
+                    recycle=refine_args["recycle"],
+                    inter_recycle=refine_args["inter_recycle"],
                 )
                 ca_trace_pred[i:i+1, :mask[i].shape[-1], 1] = coors
     

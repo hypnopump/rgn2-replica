@@ -131,7 +131,7 @@ def batched_inference(*args, model, embedder,
     # POST-PROCESS
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
         points_preds, mask=long_mask, 
-        model=model, refiner_args={
+        model=model, refine_args={
             "embedds": embedds, 
             "int_seq": int_seq, 
             "recycle": recycle_func(None),
