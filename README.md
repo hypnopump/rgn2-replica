@@ -84,7 +84,7 @@ Currently the main discussions / conversation about the model development is hap
 
 Clone this project to your computer:
 
-`git clone https://github.com/EricAlcaide/pysimplechain`
+`git clone https://github.com/EricAlcaide/rgn2-replica`
 
 Please, follow [this guideline on open source contribtuion](https://numpy.org/devdocs/dev/index.html) 
 

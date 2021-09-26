@@ -1,4 +1,5 @@
 import os
+import json
 import argparse
 import random
 import numpy as np
@@ -51,7 +52,7 @@ def parse_arguments():
     parser.add_argument("--num_recycles_train", type=int, default=3, 
                         help="number of recycling iters. set to 1 to speed training.",)
     # refiner params
-    parser.add_argument("--refiner_args", help="args for refiner module", type=dict, default={})
+    parser.add_argument("--refiner_args", help="args for refiner module", type=json.loads, default={})
     parser.add_argument("--seed", help="Random seed", default=42)
 
     return parser.parse_args()
