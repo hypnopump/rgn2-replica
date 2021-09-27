@@ -141,12 +141,15 @@ class AconC(torch.jit.ScriptModule):
     @torch.jit.script_method
     def forward(self, x):
         """ Inputs (B, L, C) --> Outputs (B, L, C). """
-        p1, p2, beta = self.p1, self.p2, self.beta
-        while x.dim() > p1.dim(): 
-            p1 = p1.unsqueeze(0)
-            p2 = p2.unsqueeze(0)
-            beta = beta.unsqueeze(0)
-        return (p1 * x - p2 * x) * torch.sigmoid(beta * (p1 * x - p2 * x)) + p2 * x
+        # TODO: Inspect how much beta changes. If it stays close to 1, use F.swish instead.
+        # TODO: (p1 - p2) * x shouldn't do much more than just p1 * x
+        # TODO: Considering that PReLU overfits, check if F.swish(x) + x is better
+        shape = (1,) * (x.ndim() - 1) + (self.p1.size(0),)
+        p1 = self.p1.view(*shape)
+        p2 = self.p2.view(*shape)
+        beta = self.beta.view(*shape)
+        x_mul = (p1 - p2) * x
+        return x_mul * x_mul.mul(beta).sigmoid() + p2 * x
 
 
 # from https://github.com/FlorianWilhelm/mlstm4reco/blob/master/src/mlstm4reco/layers.py
