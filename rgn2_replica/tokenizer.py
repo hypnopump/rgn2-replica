@@ -3,16 +3,16 @@
 from transformers import  PreTrainedTokenizer
 import numpy as np
 
-class Tokenizer(PreTrainedTokenizer):
-    # Taken from mp_nerf and extended based on ESM
-    ALPHABETS = "ACDEFGHIKLMNPQRSTVWY_XBUZO"
-    SPLTOKENS = ['<cls>','<eos>','<pad>','<mask>']
+# Taken from mp_nerf and extended based on ESM
+ALPHABETS = "ACDEFGHIKLMNPQRSTVWY_XBUZO"
+SPLTOKENS = ['<pad>','<cls>','<eos>','<mask>']
 
+VOCAB_DICT = {k: i for i,k in enumerate(SPLTOKENS+list(ALPHABETS))}
+
+class Tokenizer(PreTrainedTokenizer):
     def __init__(self, extra_tokens=[]):
-        ext_tokens = self.SPLTOKENS + extra_tokens
-        base_index = {aa:i for i,aa in enumerate(self.ALPHABETS)}
-        ext_index = {k: i for k,i in zip(self.SPLTOKENS, list(range(len(self.ALPHABETS),len(self.ALPHABETS)+len(ext_tokens)))) }
-        self.index = {**base_index, **ext_index}
+        ext_index = {k: i+len(VOCAB_DICT) for i,k in enumerate(extra_tokens)}
+        self.index = {**VOCAB_DICT, **ext_index}
         self.cls_token = '<cls>'
         self.mask_token = '<mask>'
         self._pad_token = '<pad>'
