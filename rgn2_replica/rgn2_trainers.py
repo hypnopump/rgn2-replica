@@ -457,7 +457,7 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
             # violation loss btween calphas - L1
             dist_mat = torch.cdist(infer["wrapper_pred"][:, :, 1], 
                                    infer["wrapper_pred"][:, :, 1],) # B, L, L
-            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = 5.
+            dist_mat = dist_mat + torch.eye(dist_mat.shape[-1]).unsqueeze(0).to(dist_mat)*5.
             viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.).contiguous()
             
             # calc metrics
