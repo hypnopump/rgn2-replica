@@ -350,7 +350,8 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
             # violation loss btween calphas - L1
             dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
                                            infer["wrapper_pred"][:, :, 1],) # B, L, L
-            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = 5.
+            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = \
+                dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] + 5.
             viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.) 
             
             # calc metrics
@@ -456,7 +457,8 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
             # violation loss btween calphas - L1
             dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
                                            infer["wrapper_pred"][:, :, 1],) # B, L, L
-            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = 5.
+            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = \
+                dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] + 5.
             viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.) 
             
             # calc metrics
