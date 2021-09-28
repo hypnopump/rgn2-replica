@@ -87,7 +87,7 @@ def pred_post_process(points_preds: torch.Tensor,
                 coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
                 coors = coors.detach() if model.refiner.refiner_detach else coors 
                 feats, coors, r_iters = model.refiner(
-                    feats=refine_args[model.refiner["feats_inputs"]][i:i+1, :mask[i].shape[-1]], # embeddings
+                    feats=refine_args[model.refiner.feats_inputs][i:i+1, :mask[i].shape[-1]], # embeddings
                     coors=coors, 
                     adj_mat=adj_mat,
                     recycle=refine_args["recycle"],
