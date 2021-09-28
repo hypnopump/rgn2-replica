@@ -59,7 +59,7 @@ def batched_inference(*args, model, embedder,
     angles_mask_ = torch.zeros_like(angles_label_).bool() # propagate mask to angles w/ missing points
     for i, arg in enumerate(args): 
         length = arg[1].shape[-1]
-        angles_label_[i, 1:length-1, 0] = mp_nerf.utils.get_angle(
+        angles_label_[i, 1:length-1, 0] = mp_nerf.utils.get_cosine_angle(
             ca_trace[i, :length-2 , :], 
             ca_trace[i, 1:length-1, :],
             ca_trace[i, 2:length  , :],
