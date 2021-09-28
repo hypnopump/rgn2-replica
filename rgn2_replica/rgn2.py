@@ -1,4 +1,4 @@
-# Author: Eric Alcaide ( @hypnopump )
+# Author: Eric Alcaide ( @hypnopump ) 
 import os
 import sys
 from typing import Optional, Tuple, List
@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from x_transformers import XTransformer, Encoder
 from einops import rearrange, repeat
 # custom
-import mp_nerf
+from rgn2_replica import mp_nerf
 from rgn2_replica.utils import *
 import en_transformer
 

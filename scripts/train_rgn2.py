@@ -1,24 +1,16 @@
 import os
 import json
 import argparse
-import random
-import numpy as np
 
-import wandb
-import torch
-import esm
 import sidechainnet
 from sidechainnet.utils.sequence import ProteinVocabulary as VOCAB
 
 # IMPORTED ALSO IN LATER MODULES
 VOCAB = VOCAB()
 
-import mp_nerf
 from rgn2_replica.rgn2_trainers import *
 from rgn2_replica.embedders import *
-from rgn2_replica import set_seed, RGN2_Naive
-
-
+from rgn2_replica import set_seed, RGN2_Naive, mp_nerf
 
 
 def parse_arguments():
@@ -34,9 +26,9 @@ def parse_arguments():
     # data params
     parser.add_argument("--min_len", help="Min seq len, for train", type=int, default=0)
     parser.add_argument("--min_len_valid", help="Min seq len, for valid", type=int, default=0)
-    parser.add_argument("--max_len", help="Max seq len", type=int, default=512)
-    parser.add_argument("--casp_version", help="SCN dataset version", type=int, default=12)
-    parser.add_argument("--scn_thinning", help="SCN dataset thinning", type=int, default=90)
+    parser.add_argument("--max_len", help="Max seq len", type=int, default=128)#512)
+    parser.add_argument("--casp_version", help="SCN dataset version", type=int, default=7)
+    parser.add_argument("--scn_thinning", help="SCN dataset thinning", type=int, default=30)
     parser.add_argument("--xray", help="only use xray structures", type=bool, default=0)
     parser.add_argument("--frac_true_torsions", help="Provide right torsions for some prots", type=bool, default=0)
     # model params
@@ -181,7 +173,7 @@ def run_train_schedule(dataloaders, embedder, config, args):
                 vocab_=VOCAB,
                 min_len=config.min_len, max_len=max_len,  # MAX_LEN,
                 verbose=False, subset="train", 
-                xray_filter=config.xray,
+                # xray_filter=config.xray,
             )
 
             optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
@@ -207,10 +199,10 @@ def run_train_schedule(dataloaders, embedder, config, args):
             config=config,
         )
 
-        metric = np.mean([x["drmsd"] for x in metrics_stuff[0][-5*batch_size:]])
-        print("\nCheckpoint {0} @ {1}, pass @ {2}. Metrics mean train = {1}\n".format(
-            i, ckpt, metric, metrics_stuff[-1]
-        ))
+        # metric = np.mean([x["drmsd"] for x in metrics_stuff[0][-5*batch_size:]])
+        # print("\nCheckpoint {0} @ {1}, pass @ {2}. Metrics mean train = {1}\n".format(
+        #     i, ckpt, metric, metrics_stuff[-1]
+        # ))
 
         # save
         os.makedirs('rgn2_models', exist_ok=True)
@@ -262,12 +254,12 @@ def run_train_schedule(dataloaders, embedder, config, args):
         valid_log_acc.append(metrics_stats_eval)
 
         # ABORT OR CONTINUE: mean of last 5 batches below ckpt
-        if metric > ckpt:
-            print("ABORTING")
-            print("Didn't pass ckpt {0} @ drmsd = {1}, but instead drmsd = {2}".format(
-                i, ckpt, metric
-            ))
-            break
+        # if metric > ckpt:
+        #     print("ABORTING")
+        #     print("Didn't pass ckpt {0} @ drmsd = {1}, but instead drmsd = {2}".format(
+        #         i, ckpt, metric
+        #     ))
+        #     break
 
     os.makedirs('rgn2_models', exist_ok=True)
     save_path = "rgn2_models/"+wandb.run.name.replace("/", "_")+"@_{0}K.pt".format(
@@ -320,9 +312,10 @@ def get_training_schedule(args):
     loss_f = " metrics['drmsd'].mean() / len(infer['seq']) " 
 
     #         steps, ckpt, lr , bs , max_len, clip, loss_f
-    return [[32000, 135   , 1e-3, 16  , args.max_len, None, loss_f, 42  , ],
-            [64000, 135   , 1e-3, 32  , args.max_len, None, loss_f, 42  , ],
-            [32000, 135   , 1e-4, 32  , args.max_len, None, loss_f, 42  , ],]
+    # return [[32000, 135   , 1e-3, 16  , args.max_len, None, loss_f, 42  , ],
+    #         [64000, 135   , 1e-3, 32  , args.max_len, None, loss_f, 42  , ],
+    #         [32000, 135   , 1e-4, 32  , args.max_len, None, loss_f, 42  , ],]
+    return [[32, 2, 1e-3, 16, args.max_len, None, loss_f, 42, ]]
 
 
 if __name__ == '__main__':

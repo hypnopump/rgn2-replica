@@ -22,7 +22,7 @@ setup(
     'sidechainnet',
     'proDy',
     'tqdm',
-    'mp-nerf',
+    # 'mp-nerf',
     'en-transformer>=0.5.0',
     'datasets>=1.10',
     'transformers>=4.2',

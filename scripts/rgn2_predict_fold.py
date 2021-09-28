@@ -1,16 +1,8 @@
 # Author: Eirc Alcaide (@hypnopump)
-import os
-import re
-import numpy as np 
-import torch
 # process
 import argparse
-import joblib
-from tqdm import tqdm
 # custom
-import esm
 import sidechainnet
-import mp_nerf
 from rgn2_replica import *
 from rgn2_replica.rosetta_refine import *
 from rgn2_replica.utils import seqs_from_fasta
@@ -91,7 +83,6 @@ if __name__ == "__main__":
     # refine structs
     if args.rosetta_refine: 
         from typing import Optional
-        import pyrosetta
 
         for i, seq in enumerate(seq_list): 
             # only refine
