@@ -7,7 +7,7 @@
   "download_checksums": null,
   "download_size": null,
   "features": {
-    "flat_go_annotations": {
+    "go_ids": {
       "dtype": "string",
       "id": null,
       "_type": "Value"

@@ -721,7 +721,7 @@ class RGN2_Naive(torch.nn.Module):
 
 class RGN2_Refiner_Wrapper(torch.nn.Module):
     """ Wraps an engine for global refinement. """
-    def __init__(self, **kwargs)
+    def __init__(self, **kwargs):
         self.kwargs = kwargs
         # create dict of acceptable inputs
         self.refiner_args = {
