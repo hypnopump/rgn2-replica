@@ -1,4 +1,5 @@
 import os
+import json
 import argparse
 import random
 import numpy as np
@@ -37,19 +38,21 @@ def parse_arguments():
     parser.add_argument("--casp_version", help="SCN dataset version", type=int, default=12)
     parser.add_argument("--scn_thinning", help="SCN dataset thinning", type=int, default=90)
     parser.add_argument("--xray", help="only use xray structures", type=bool, default=0)
+    parser.add_argument("--frac_true_torsions", help="Provide right torsions for some prots", type=bool, default=0)
     # model params
     parser.add_argument("--embedder_model", help="Embedding model to use", default='esm1b')
     parser.add_argument("--num_layers", help="num rnn layers", type=int, default=2)
     parser.add_argument("--emb_dim", help="embedding dimension", type=int, default=1280)
     parser.add_argument("--hidden", help="hidden dimension", type=int, default=1024)
-    parser.add_argument("--act", help="hideen activation", type=str, default="silu")
+    parser.add_argument("--act", help="hidden activation", type=str, default="silu")
     parser.add_argument("--layer_type", help="rnn layer type", type=str, default="LSTM")
     parser.add_argument("--input_dropout", help="input dropout", type=float, default=0.5)
     parser.add_argument("--bidirectional", help="bidirectionality", type=bool, default=0)
     parser.add_argument("--angularize", help="angularization units. 0 for reg", type=int, default=0)
     parser.add_argument("--num_recycles_train", type=int, default=3, 
                         help="number of recycling iters. set to 1 to speed training.",)
-
+    # refiner params
+    parser.add_argument("--refiner_args", help="args for refiner module", type=json.loads, default={})
     parser.add_argument("--seed", help="Random seed", default=42)
 
     return parser.parse_args()
@@ -95,6 +98,7 @@ def init_wandb_config(args):
     config.min_len = args.min_len
     config.max_len = args.max_len
     config.xray = bool(args.xray)
+    config.frac_true_torsions = bool(args.frac_true_torsions)
 
     # model hyperparams
     config.num_layers = args.num_layers
@@ -108,6 +112,8 @@ def init_wandb_config(args):
     config.bidirectional = bool(args.bidirectional)  # True
     config.max_recycles_train = args.num_recycles_train  #  set up to 1 to speed things
     config.angularize = bool(args.angularize)
+
+    config.refiner_args = dict(args.refiner_args)
     
     return config
 
@@ -146,10 +152,11 @@ def run_train_schedule(dataloaders, embedder, config, args):
                        layer_type=config.layer_type,
                        input_dropout=config.input_dropout,
                        angularize=config.angularize,
+                       refiner_args=config.refiner_args,
                        ).to(device)
     
     if args.resume_name is not None: 
-        model.load_state_dict(torch.load(args.resume_name))
+        model.load_my_state_dict(torch.load(args.resume_name, map_location=device))
 
     # 3. Log gradients and model parameters
     wandb.watch(model)
@@ -197,6 +204,7 @@ def run_train_schedule(dataloaders, embedder, config, args):
             seed=seed,
             recycle_func=lambda x: random.randint(1, config.max_recycles_train),  # 1
             wandbai=True,
+            config=config,
         )
 
         metric = np.mean([x["drmsd"] for x in metrics_stuff[0][-5*batch_size:]])

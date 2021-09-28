@@ -25,7 +25,9 @@ except:
 
 
 def batched_inference(*args, model, embedder,
-                             mode="test", device="cpu", recycle_func=lambda x: 1):
+                             mode="test", device="cpu", 
+                             recycle_func=lambda x: 1,
+                             config=None):
     """ Inputs: 
         * args: iterable of outputs from mp_nerf.utils.get_prot()
                 ( seq, int_seq, true_coords, angles, padding_seq, mask, pid )
@@ -35,6 +37,7 @@ def batched_inference(*args, model, embedder,
                       Only works for test atm.
         * device: str or torch.device 
         * recycle_func: func. returns number of reycling iters
+        * config: None or config class.
         Outputs: 
         * (B, L, 4)
     """
@@ -104,6 +107,11 @@ def batched_inference(*args, model, embedder,
         # don't pass angles info - just 0 at start (sin=0, cos=1)
         torch.zeros_like(angles_input) + angles_input[:, :1],
     ], dim=-1)
+
+    if config is not None: 
+        if random.random() < config.frac_true_torsions: 
+            angles_label_input = rearrange(points_label, "... c d -> ... (c d)")
+            embedds[..., angles_label_input.shape[-1]:] = angles_label_input
     
     # PREDICT
     if mode == "train": 
@@ -122,7 +130,13 @@ def batched_inference(*args, model, embedder,
     
     # POST-PROCESS
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-        points_preds, mask=long_mask 
+        points_preds, mask=long_mask, # long_mask == True for all seq_len
+        model=model, refine_args={
+            "embedds": embedds, 
+            "int_seq": int_seq.to(device), 
+            "recycle": recycle_func(None),
+            "inter_recycle": False,
+        }
     )
 
     # get frames for for later fape
@@ -241,7 +255,13 @@ def inference(*args, model, embedder,
 
     # post-process
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-        points_preds, mask=long_mask 
+        points_preds, mask=long_mask,
+        model=model, refiner_args={
+            "embedds": embedds, 
+            "int_seq": int_seq.to(device), 
+            "recycle": recycle_func(None),
+            "inter_recycle": False,
+        }
     )
 
     # get frames for for later fape
@@ -330,7 +350,8 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
             # violation loss btween calphas - L1
             dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
                                            infer["wrapper_pred"][:, :, 1],) # B, L, L
-            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = 5.
+            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = \
+                dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] + 5.
             viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.) 
             
             # calc metrics
@@ -383,7 +404,7 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
 
 def train(get_prot_, steps, model, embedder, optim, loss_f=None, 
           clip=None, accumulate_every=1, log_every=None, seed=None, wandbai=False, 
-          recycle_func=lambda x: 1): 
+          recycle_func=lambda x: 1, config=None): 
     """ Performs a batch prediction. 
         Can return whole list of preds or just metrics.
         Inputs: 
@@ -398,6 +419,7 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
         * seed: int or None.
         * wandbai: bool. whether to log to W&B
         * recycle_func: func. number of recycle iters per sample
+        * config: None or config class. 
         Outputs: 
         * preds_list: (steps, dict) list
         * metrics_list: (steps, dict) list
@@ -418,7 +440,8 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
         infer_batch = batched_inference(
             *prots, 
             model=model, embedder=embedder, 
-            mode="train", device=device, recycle_func=recycle_func
+            mode="train", device=device, recycle_func=recycle_func, 
+            config=config,
         )
 
         # calculate metrics
@@ -434,8 +457,8 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
             # violation loss btween calphas - L1
             dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
                                            infer["wrapper_pred"][:, :, 1],) # B, L, L
-            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = 5.
-            viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.) 
+            dist_mat = dist_mat + torch.eye(dist_mat.shape[-1]).unsqueeze(0).to(dist_mat)*5.
+            viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.).contiguous()
             
             # calc metrics
             log_dict = {
@@ -444,7 +467,7 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
             }
             metrics = mp_nerf.proteins.get_protein_metrics(
                 true_coords=infer["coords"][:, infer["mask"]],
-                pred_coords=infer["ca_trace_pred"][:, infer["mask"]],
+                pred_coords=infer["wrapper_pred"][:, infer["mask"]],
                 detach=False
             )
             log_dict.update({k:v.mean().item() for k,v in metrics.items() if "wrap" not in k})
