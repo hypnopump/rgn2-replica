@@ -87,7 +87,7 @@ def pred_post_process(points_preds: torch.Tensor,
                 coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
                 coors = coors.detach() if model.refiner.refiner_detach else coors 
                 feats, coors, r_iters = model.refiner(
-                    feats=refine_args["embedds"][i:i+1, :mask[i].shape[-1]], # embeddings
+                    feats=refine_args[model.refiner["feats_inputs"]][i:i+1, :mask[i].shape[-1]], # embeddings
                     coors=coors, 
                     adj_mat=adj_mat,
                     recycle=refine_args["recycle"],
@@ -758,11 +758,11 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
 
         Input example:  (uses https://github.com/hypnopump/en-transformer)
         refiner = RGN2_Refiner_Wrapper({
-            'refiner_detach': False, 
+            'refiner_detach': true, # false 
             'dim': 32,
             'depth': 4,
-            'num_tokens': 1280+4, # 21 for int_seq
-            'rel_pos_emb': True,
+            'num_tokens': 21, # 1280+4, # 21 for int_seq
+            'rel_pos_emb': true,
             'dim_head': 32,
             'heads': 2,
             'num_edge_tokens': None,
@@ -773,7 +773,8 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
             'valid_neighbor_radius': 30,
             'checkpoint': None, 
             # now it's about special args
-            'refiner_detach': True,
+            'refiner_detach': true,
+            'feats_inputs': "int_seq", # "embedds"
         })
     """
     def __init__(self, **kwargs):

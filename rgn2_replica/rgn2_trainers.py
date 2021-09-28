@@ -130,10 +130,10 @@ def batched_inference(*args, model, embedder,
     
     # POST-PROCESS
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-        points_preds, mask=long_mask, 
+        points_preds, mask=long_mask, # long_mask == True for all seq_len
         model=model, refine_args={
             "embedds": embedds, 
-            "int_seq": int_seq, 
+            "int_seq": int_seq.to(device), 
             "recycle": recycle_func(None),
             "inter_recycle": False,
         }
@@ -258,7 +258,7 @@ def inference(*args, model, embedder,
         points_preds, mask=long_mask,
         model=model, refiner_args={
             "embedds": embedds, 
-            "int_seq": int_seq, 
+            "int_seq": int_seq.to(device), 
             "recycle": recycle_func(None),
             "inter_recycle": False,
         }
