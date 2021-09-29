@@ -4,9 +4,9 @@
       "filename": "dataset.arrow"
     }
   ],
-  "_fingerprint": "a2b2eac633232bca",
+  "_fingerprint": "f62b54bf98b2619c",
   "_format_columns": [
-    "flat_go_annotations",
+    "go_ids",
     "go_labels",
     "id",
     "input_ids",
