@@ -744,7 +744,7 @@ class RGN2_Naive(torch.nn.Module):
             elif name.endswith("_l"): 
                 adding[name+"0"] = param
 
-        for k, v in adding.items: 
+        for k, v in adding.items(): 
             state_dict[k] = v
 
         # iterate and assign
