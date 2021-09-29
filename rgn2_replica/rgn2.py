@@ -737,15 +737,15 @@ class RGN2_Naive(torch.nn.Module):
         in_dict_out_of_model = set([])
 
         # solve naming with `_l0` and `_l`
-        adding = {}
-        for name, param in state_dict.items():
-            if name.endswith("_l0"):
-                adding[name[:-1]] = param
-            elif name.endswith("_l"): 
-                adding[name+"0"] = param
+        # adding = {}
+        # for name, param in state_dict.items():
+        #     if name.endswith("_l0"):
+        #         adding[name[:-1]] = param
+        #     elif name.endswith("_l"): 
+        #         adding[name+"0"] = param
 
-        for k, v in adding.items(): 
-            state_dict[k] = v
+        # for k, v in adding.items(): 
+        #     state_dict[k] = v
 
         # iterate and assign
         for name, param in state_dict.items():
