@@ -482,8 +482,8 @@ def get_protein_metrics(
         Outputs: dict (k,v)
     """
     metric_dict = {
-        # "rmsd": RMSD,
-        # "drmsd": dRMSD,
+        "rmsd": rmsd_torch,
+        "drmsd": drmsd_torch,
         # not implemented yet
         # "gdt_ts": partial(GDT, mode="TS"),
         # "gdt_ha": partial(GDT, mode="HA"),

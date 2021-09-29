@@ -199,10 +199,10 @@ def run_train_schedule(dataloaders, embedder, config, args):
             config=config,
         )
 
-        # metric = np.mean([x["drmsd"] for x in metrics_stuff[0][-5*batch_size:]])
-        # print("\nCheckpoint {0} @ {1}, pass @ {2}. Metrics mean train = {1}\n".format(
-        #     i, ckpt, metric, metrics_stuff[-1]
-        # ))
+        metric = np.mean([x["drmsd"] for x in metrics_stuff[0][-5*batch_size:]])
+        print("\nCheckpoint {0} @ {1}, pass @ {2}. Metrics mean train = {1}\n".format(
+            i, ckpt, metric, metrics_stuff[-1]
+        ))
 
         # save
         os.makedirs('rgn2_models', exist_ok=True)
@@ -254,12 +254,12 @@ def run_train_schedule(dataloaders, embedder, config, args):
         valid_log_acc.append(metrics_stats_eval)
 
         # ABORT OR CONTINUE: mean of last 5 batches below ckpt
-        # if metric > ckpt:
-        #     print("ABORTING")
-        #     print("Didn't pass ckpt {0} @ drmsd = {1}, but instead drmsd = {2}".format(
-        #         i, ckpt, metric
-        #     ))
-        #     break
+        if metric > ckpt:
+            print("ABORTING")
+            print("Didn't pass ckpt {0} @ drmsd = {1}, but instead drmsd = {2}".format(
+                i, ckpt, metric
+            ))
+            break
 
     os.makedirs('rgn2_models', exist_ok=True)
     save_path = "rgn2_models/"+wandb.run.name.replace("/", "_")+"@_{0}K.pt".format(
