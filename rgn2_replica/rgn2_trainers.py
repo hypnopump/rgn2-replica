@@ -360,8 +360,8 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
                 "viol_loss": viol_loss.mean().item()           
             }
             metrics = mp_nerf.proteins.get_protein_metrics(
-                true_coords=infer["coords"][:, infer["mask"]],
-                pred_coords=infer["ca_trace_pred"][:, infer["mask"]],
+                true_coords=infer["coords"], # [:, infer["mask"]],
+                pred_coords=infer["ca_trace_pred"], # [:, infer["mask"]],
                 detach=True
             )
             log_dict.update({

@@ -53,7 +53,7 @@ def parse_arguments():
                         help="number of recycling iters. set to 1 to speed training.",)
     # refiner params
     parser.add_argument("--refiner_args", help="args for refiner module", type=json.loads, default={})
-    parser.add_argument("--seed", help="Random seed", default=42)
+    parser.add_argument("--seed", help="Random seed", default=101)
 
     return parser.parse_args()
 
