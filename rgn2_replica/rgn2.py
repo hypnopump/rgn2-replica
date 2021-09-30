@@ -31,13 +31,11 @@ def prediction_wrapper(x: torch.Tensor, pred: torch.Tensor):
         Outputs: (B, L, Emb_dim)
     """
     # ensure preds' first values
-    pred[:, 0, [0, 2]] = 0.
-    pred[:, 0, [1, 3]] = 1.
-    pred[:, 1, 2] = 0.
-    pred[:, 1, 3] = 1.
+    pred[:, 1, 2] = 1.
+    pred[:, 1, 3] = 0.
     # refill x with preds
     x_ = x.clone()
-    x_[:, :-1, -pred.shape[-1]:] = pred.detach()
+    x_[:, 1:-1, -pred.shape[-1]:] = pred.detach()
     return x_
 
 
@@ -62,10 +60,10 @@ def pred_post_process(points_preds: torch.Tensor,
     if mask is None:
         mask = torch.ones(points_preds.shape[:-2], dtype=torch.bool)
     # restate first values to known ones (1st angle, 1s + 2nd dihedral)
-    points_preds[:, 0, [0, 1], 1] = 1.
-    points_preds[:, 0, [0, 1], 0] = 0.
-    points_preds[:, 1, 1, 1] = 1.
-    points_preds[:, 1, 1, 0] = 0.
+    points_preds[:, 0, [0, 1], 0] = 1.
+    points_preds[:, 0, [0, 1], 1] = 0.
+    points_preds[:, 1, 1, 0] = 1.
+    points_preds[:, 1, 1, 1] = 0.
 
     # rebuild ca trace with angles - norm vectors to ensure mod=1. - (B, L, 14, 3)
     ca_trace_pred = torch.zeros(*points_preds.shape[:-2], 14, 3, device=device)
