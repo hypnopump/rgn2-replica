@@ -35,7 +35,7 @@ def prediction_wrapper(x: torch.Tensor, pred: torch.Tensor):
     pred[:, 1, 3] = 0.
     # refill x with preds
     x_ = x.clone()
-    x_[:, 1:-1, -pred.shape[-1]:] = pred.detach()
+    x_[:, 1:-1, -pred.shape[-1]:] = pred[:, 1:].detach()
     return x_
 
 
