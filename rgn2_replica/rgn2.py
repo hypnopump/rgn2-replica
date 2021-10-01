@@ -59,6 +59,7 @@ def pred_post_process(points_preds: torch.Tensor,
     device = points_preds.device
     if mask is None:
         mask = torch.ones(points_preds.shape[:-2], dtype=torch.bool)
+    lengths = mask.sum(dim=-1).cpu().detach().tolist()
     # restate first values to known ones (1st angle, 1s + 2nd dihedral)
     points_preds[:, 0, [0, 1], 0] = 1.
     points_preds[:, 0, [0, 1], 1] = 0.
@@ -72,6 +73,9 @@ def pred_post_process(points_preds: torch.Tensor,
             points_preds.shape[0], -1, 4
         )
     )
+    # delete extra part and chirally reflect
+    for i in range(points_preds.shape[0]): 
+        ca_trace_pred[:, lengths[i]:] *= 0
     ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
 
     # use model's refiner if available
@@ -79,31 +83,31 @@ def pred_post_process(points_preds: torch.Tensor,
         if model.refiner is not None:
             for i in range(mask.shape[0]):
                 adj_mat = torch.from_numpy(
-                    np.eye(mask[i].shape[-1], k=1) + np.eye(mask[i].shape[-1], k=1).T
+                    np.eye(lengths[i], k=1) + np.eye(lengths[i], k=1).T
                 ).bool().to(device).unsqueeze(0)
 
                 coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
                 coors = coors.detach() if model.refiner.refiner_detach else coors
                 feats, coors, r_iters = model.refiner(
-                    feats=refine_args[model.refiner.feats_inputs][i:i+1, :mask[i].shape[-1]], # embeddings
+                    feats=refine_args[model.refiner.feats_inputs][i:i+1, :lengths[i]], # embeddings
                     coors=coors,
                     adj_mat=adj_mat,
                     recycle=refine_args["recycle"],
                     inter_recycle=refine_args["inter_recycle"],
                 )
-                ca_trace_pred[i:i+1, :mask[i].shape[-1], 1] = coors
+                ca_trace_pred[i:i+1, :lengths[i], 1] = coors
 
     # calc BB - can't do batched bc relies on extremes.
     wrapper_pred = torch.zeros_like(ca_trace_pred)
     for i in range(points_preds.shape[0]):
-        wrapper_pred[i, :mask[i].shape[-1]] = mp_nerf.proteins.ca_bb_fold( 
-            ca_trace_pred[i:i+1, :mask[i].shape[-1], 1] 
+        wrapper_pred[i, :lengths[i]] = mp_nerf.proteins.ca_bb_fold( 
+            ca_trace_pred[i:i+1, :lengths[i], 1] 
         )
         if seq_list is not None:
             # build sidechains
             scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
-            wrapper_pred[i, :mask[i].shape[-1]], _ = mp_nerf.proteins.sidechain_fold(
-                wrapper_pred[i, : mask[i].shape[-1]], **scaffolds, c_beta="backbone"
+            wrapper_pred[i, :lengths[i]], _ = mp_nerf.proteins.sidechain_fold(
+                wrapper_pred[i, :lengths[i]], **scaffolds, c_beta="backbone"
             )
 
     return points_preds, ca_trace_pred, frames_preds, wrapper_pred
