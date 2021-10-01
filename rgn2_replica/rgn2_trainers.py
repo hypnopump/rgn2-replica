@@ -114,18 +114,10 @@ def batched_inference(*args, model, embedder,
             embedds[..., angles_label_input.shape[-1]:] = angles_label_input
     
     # PREDICT
-    if mode == "train": 
+    if mode in ["train", "test", "fast_test"]: 
         # get angles
         preds, r_iters = model.forward(embedds, mask=long_mask,
                                        recycle=recycle_func(None))      # (B, L, 4)
-    elif mode == "test": 
-        preds, r_iters = model.predict_fold(embedds, mask=long_mask,
-                                            recycle=recycle_func(None)) # (B, L, 4)   
-    elif mode == "fast_test":  
-        embedds[:, :, -4:] = embedds[:, :, -4:] * 0. # zero out angle features
-        preds, r_iters = model.forward(embedds, mask=long_mask,
-                                       recycle=recycle_func(None))     # , inter_recycle=True
-
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
     
     # POST-PROCESS
@@ -153,7 +145,7 @@ def batched_inference(*args, model, embedder,
             "angles": arg[2],
             "padding_seq": arg[3],
             "mask": arg[5].bool(),
-            "long_mask": long_mask[i, :arg[1].shape[-1]],
+            "long_mask": long_mask[i:i+1, :arg[1].shape[-1]],
             "pid": arg[6],
             # labels
             "true_coords": true_coords[i:i+1, :arg[1].shape[-1]*14], # (1, (L C), 3)
@@ -241,17 +233,8 @@ def inference(*args, model, embedder,
         torch.zeros_like(angles_input) + angles_input[:, :1], 
     ], dim=-1)
     
-    if mode == "train": 
-        preds, r_iters = model.forward(embedds, mask=long_mask,
-                                       recycle=recycle_func(None))       # (B, L, 4)
-    elif mode == "test": 
-        preds, r_iters = model.predict_fold(embedds, mask=long_mask,
-                                            recycle=recycle_func(None))  # (B, L, 4)
-    elif mode == "fast_test": 
-        embedds[:, :, -4:] = embedds[:, :, -4:] * 0. # zero out angle features
-        preds, r_iters = model.forward(embedds, mask=long_mask,
-                                       recycle=recycle_func(None))     # , inter_recycle=True
-        
+    preds, r_iters = model.forward(embedds, mask=long_mask,
+                                       recycle=recycle_func(None))     # (B, L, 4)
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
 
     # post-process
