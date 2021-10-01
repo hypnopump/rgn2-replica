@@ -96,14 +96,14 @@ def pred_post_process(points_preds: torch.Tensor,
     # calc BB - can't do batched bc relies on extremes.
     wrapper_pred = torch.zeros_like(ca_trace_pred)
     for i in range(points_preds.shape[0]):
-        wrapper_pred[i, mask[i]] = mp_nerf.proteins.ca_bb_fold(
-            ca_trace_pred[i:i+1, mask[i], 1]
+        wrapper_pred[i, :mask[i].shape[-1]] = mp_nerf.proteins.ca_bb_fold( 
+            ca_trace_pred[i:i+1, :mask[i].shape[-1], 1] 
         )
         if seq_list is not None:
             # build sidechains
             scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
-            wrapper_pred[i, mask[i]], _ = mp_nerf.proteins.sidechain_fold(
-                wrapper_pred[i, mask[i]], **scaffolds, c_beta="backbone"
+            wrapper_pred[i, :mask[i].shape[-1]], _ = mp_nerf.proteins.sidechain_fold(
+                wrapper_pred[i, : mask[i].shape[-1]], **scaffolds, c_beta="backbone"
             )
 
     return points_preds, ca_trace_pred, frames_preds, wrapper_pred
