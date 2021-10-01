@@ -74,9 +74,11 @@ def pred_post_process(points_preds: torch.Tensor,
         )
     )
     # delete extra part and chirally reflect
+    ca_trace_pred_aux = torch.zeros_like(ca_trace_pred)
     for i in range(points_preds.shape[0]): 
-        ca_trace_pred[:, lengths[i]:] *= 0
-    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+        ca_trace_pred_aux[i, :lengths[i]] = ca_trace_pred_aux[i, :lengths[i]] + \
+                                            mp_nerf.utils.ensure_chirality(ca_trace_pred[i:i+1, :lengths[i]])
+    ca_trace_pred = ca_trace_pred_aux
 
     # use model's refiner if available
     if model is not None:
