@@ -200,7 +200,7 @@ def run_train_schedule(dataloaders, embedder, config, args):
             loss_f=loss_f,  # + 0.005 * metrics['drmsd'].mean()",
             clip=clip,
             accumulate_every=batch_size,
-            log_every=4,
+            log_every=1,
             seed=seed,
             recycle_func=lambda x: random.randint(1, config.max_recycles_train),  # 1
             wandbai=True,

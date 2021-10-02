@@ -467,6 +467,9 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
             if wandbai and WANDB:
                 wandb.log(metrics_list[-1])
 
+            if log_every == 1: 
+                print(infer["seq"])
+
             
         # clip gradients - p.44 AF2 methods section
         # update weights
