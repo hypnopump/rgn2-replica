@@ -468,7 +468,7 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
                 wandb.log(metrics_list[-1])
 
             if log_every == 1: 
-                print(infer["seq"])
+                print({"seq": infer["seq"], "loss": log_dict["loss"]})
 
             
         # clip gradients - p.44 AF2 methods section
