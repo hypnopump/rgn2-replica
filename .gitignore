@@ -138,3 +138,8 @@ dmypy.json
 
 
 /wandb/
+scripts/rgn2_models/
+scripts/sidechainnet_data
+scripts/wandb
+
+.idea/

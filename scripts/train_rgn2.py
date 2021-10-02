@@ -5,6 +5,9 @@ import argparse
 import sidechainnet
 from sidechainnet.utils.sequence import ProteinVocabulary as VOCAB
 
+import sys
+sys.path.append("..")
+
 # IMPORTED ALSO IN LATER MODULES
 VOCAB = VOCAB()
 

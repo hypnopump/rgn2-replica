@@ -47,7 +47,7 @@ class EsmEmbedder(torch.nn.Module):
         super().__init__()
 
         import esm
-        self.embedder, alphabet = esm.pretrained.esm1b_t33_650M_UR50S()
+        self.embedder, alphabet = esm.pretrained.esm_msa1b_t12_100M_UR50S() #esm1b_t33_650M_UR50S()
         self.batch_converter = alphabet.get_batch_converter()
         self.device = device
 
