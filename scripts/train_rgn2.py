@@ -183,10 +183,10 @@ def run_train_schedule(dataloaders, embedder, config, args):
                 verbose=False, subset="train", 
                 xray_filter=config.xray,
             )
-
+        if resume: 
             optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
             resume = False
-        else:
+        elif lr != steps[i-1][2]:
             for g in optimizer.param_groups:
                 g['lr'] = lr
 
