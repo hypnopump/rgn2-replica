@@ -31,8 +31,8 @@ class ClaspEmbedder(torch.nn.Module):
                       torch.Tensor (B, L) according to MP-NeRF encoding
         """
         # format
-        if isinstance(aa_seqs, torch.Tensor): 
-            aa_seq = ids_to_embed_input(to_cpu(aa_seqs).tolist())
+        if isinstance(aa_seq, torch.Tensor):
+            aa_seq = ids_to_embed_input(to_cpu(aa_seq).tolist())
 
         with torch.no_grad():
             tokenized_seq = self.tokenizer(aa_seq, context_length=len(aa_seq), return_mask=False)
@@ -47,7 +47,7 @@ class EsmEmbedder(torch.nn.Module):
         super().__init__()
 
         import esm
-        self.embedder, alphabet = esm.pretrained.esm_msa1b_t12_100M_UR50S() #esm1b_t33_650M_UR50S()
+        self.embedder, alphabet = esm.pretrained.esm1b_t33_650M_UR50S()
         self.batch_converter = alphabet.get_batch_converter()
         self.device = device
 

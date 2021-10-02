@@ -108,23 +108,16 @@ def batched_inference(*args, model, embedder,
             embedds[..., angles_label_input.shape[-1]:] = angles_label_input
     
     # PREDICT
-    if mode == "train": 
+    if mode in ["train", "test", "fast_test"]: 
         # get angles
         preds, r_iters = model.forward(embedds, mask=long_mask,
                                        recycle=recycle_func(None))      # (B, L, 4)
-    elif mode == "test": 
-        preds, r_iters = model.predict_fold(embedds, mask=long_mask,
-                                            recycle=recycle_func(None)) # (B, L, 4)   
-    elif mode == "fast_test":  
-        embedds[:, :, -4:] = embedds[:, :, -4:] * 0. # zero out angle features
-        preds, r_iters = model.forward(embedds, mask=long_mask,
-                                       recycle=recycle_func(None))     # , inter_recycle=True
-
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
     
     # POST-PROCESS
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
         points_preds, mask=long_mask, # long_mask == True for all seq_len
+        # seq_list = None, # don't fold sidechain
         model=model, refine_args={
             "embedds": embedds, 
             "int_seq": int_seq.to(device), 
@@ -133,8 +126,8 @@ def batched_inference(*args, model, embedder,
         }
     )
 
-    # get frames for for later fape
-    bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles(
+    # get frames (for labels) for for later fape
+    bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
         points_label.reshape(points_label.shape[0], -1, 4) # (B, L, 2, 2) -> (B, L, 4)
     ) 
     
@@ -146,7 +139,7 @@ def batched_inference(*args, model, embedder,
             "angles": arg[2],
             "padding_seq": arg[3],
             "mask": arg[5].bool(),
-            "long_mask": long_mask[i, :arg[1].shape[-1]],
+            "long_mask": long_mask[i:i+1, :arg[1].shape[-1]],        # (1, L,)
             "pid": arg[6],
             # labels
             "true_coords": true_coords[i:i+1, :arg[1].shape[-1]*14], # (1, (L C), 3)
@@ -234,17 +227,8 @@ def inference(*args, model, embedder,
         torch.zeros_like(angles_input) + angles_input[:, :1], 
     ], dim=-1)
     
-    if mode == "train": 
-        preds, r_iters = model.forward(embedds, mask=long_mask,
-                                       recycle=recycle_func(None))       # (B, L, 4)
-    elif mode == "test": 
-        preds, r_iters = model.predict_fold(embedds, mask=long_mask,
-                                            recycle=recycle_func(None))  # (B, L, 4)
-    elif mode == "fast_test": 
-        embedds[:, :, -4:] = embedds[:, :, -4:] * 0. # zero out angle features
-        preds, r_iters = model.forward(embedds, mask=long_mask,
-                                       recycle=recycle_func(None))     # , inter_recycle=True
-        
+    preds, r_iters = model.forward(embedds, mask=long_mask,
+                                       recycle=recycle_func(None))     # (B, L, 4)
     points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
 
     # post-process
@@ -354,8 +338,8 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
                 "viol_loss": viol_loss.mean().item()           
             }
             metrics = mp_nerf.proteins.get_protein_metrics(
-                true_coords=infer["coords"][:, infer["mask"]],
-                pred_coords=infer["ca_trace_pred"][:, infer["mask"]],
+                true_coords=infer["coords"], # [:, infer["mask"]],
+                pred_coords=infer["ca_trace_pred"], # [:, infer["mask"]],
                 detach=True
             )
             log_dict.update({
@@ -423,7 +407,6 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
 
     metrics_list = []
     b = 0
-    loss = 0.
     tic = time.time()
     while b < (steps//accumulate_every): # steps: # 
         if b == 0 and seed is not None: 
@@ -439,10 +422,9 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
         )
 
         # calculate metrics
-        loss_batch = 0
+        loss = 0.
         for i, infer in enumerate(infer_batch):
             # calc loss terms 
-            angle_mask = infer["angles_label"] != 0.
             torsion_loss = mp_nerf.ml_utils.torsion_angle_loss(
                 pred_points=infer["points_preds"][:, :-1], # [angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
                 true_points=infer["points_label"][:, :-1], # [angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
@@ -455,27 +437,26 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
             viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.).contiguous()
             
             # calc metrics
+            metrics = mp_nerf.proteins.get_protein_metrics(
+                true_coords=infer["coords"], # [:, infer["mask"]],
+                pred_coords=infer["wrapper_pred"], # [:, infer["mask"]],
+                detach=False
+            )
+
+            # calc loss
+            if isinstance(loss_f, str):
+                loss_item = eval(loss_f)
+            else: 
+                loss_item = torsion_loss.mean() + metrics["drmsd"].mean() # + 
+            loss += loss_item 
+
+            # record
             log_dict = {
                 "torsion_loss": torsion_loss.mean().item(),
                 "viol_loss": viol_loss.mean().item()           
             }
-            metrics = mp_nerf.proteins.get_protein_metrics(
-                true_coords=infer["coords"][:, infer["mask"]],
-                pred_coords=infer["wrapper_pred"][:, infer["mask"]],
-                detach=False
-            )
+            log_dict["loss"] = loss_item.item()
             log_dict.update({k:v.mean().item() for k,v in metrics.items() if "wrap" not in k})
-
-            # calc loss
-            prev_loss = loss.item() if isinstance(loss, torch.Tensor) else loss
-            # if isinstance(loss_f, str):
-            #     loss += eval(loss_f)
-            # else:
-            #     loss += torsion_loss.mean() #+ metrics["drmsd"].mean() # +
-            loss += torsion_loss.mean()
-
-            # record
-            log_dict["loss"] = loss.item() - prev_loss
             metrics_list.append( log_dict )
             if wandbai and WANDB:
                 wandb.log(metrics_list[-1])
@@ -553,7 +534,7 @@ def infer_from_seqs(seq_list, model, embedder,
         torch.zeros_like(embedds[..., -4:])
     ], dim=-1)
     # don't pass angles info - just 0 at start (sin=0, cos=1)
-    embedds[:, :, [1, 3]] = 1.
+    embedds[:, :, [0, 2]] = 1.
     # pred
     with torch.no_grad(): 
         preds, r_iters = model.forward(embedds, mask=None, recycle=recycle_func(None))  

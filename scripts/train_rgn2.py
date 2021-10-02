@@ -48,7 +48,7 @@ def parse_arguments():
                         help="number of recycling iters. set to 1 to speed training.",)
     # refiner params
     parser.add_argument("--refiner_args", help="args for refiner module", type=json.loads, default={})
-    parser.add_argument("--seed", help="Random seed", default=42)
+    parser.add_argument("--seed", help="Random seed", default=101)
 
     return parser.parse_args()
 
@@ -176,7 +176,7 @@ def run_train_schedule(dataloaders, embedder, config, args):
                 vocab_=VOCAB,
                 min_len=config.min_len, max_len=max_len,  # MAX_LEN,
                 verbose=False, subset="train", 
-                # xray_filter=config.xray,
+                xray_filter=config.xray,
             )
 
             optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
