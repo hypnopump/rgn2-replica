@@ -173,7 +173,8 @@ def run_train_schedule(dataloaders, embedder, config, args):
             'batch_size': batch_size
         }, commit=False)
 
-        if sum([steps[j][0] for j in range(i)]) < args.resume_iters: continue
+        if sum([steps[j][0] for j in range(i)]) < args.resume_iters: 
+            continue
 
         if True:
             # if seed is not None:
@@ -190,7 +191,9 @@ def run_train_schedule(dataloaders, embedder, config, args):
             optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
             resume = False
         elif lr != steps[i-1][2]:
+            print("changing LR from {0} to {1}".format(steps[i-1][2], steps[i][2]))
             for g in optimizer.param_groups:
+                print(g, g["lr"], lr)
                 g['lr'] = lr
 
         # train
