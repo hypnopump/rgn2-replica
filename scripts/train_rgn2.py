@@ -175,9 +175,9 @@ def run_train_schedule(dataloaders, embedder, config, args):
 
         if sum([steps[j][0] for j in range(i)]) < args.resume_iters: continue
 
-        if resume:
-            if seed is not None:
-                set_seed(seed)
+        if True:
+            # if seed is not None:
+            set_seed(seed)
             get_prot_ = mp_nerf.utils.get_prot(
                 dataloader_=dataloaders,
                 vocab_=VOCAB,
