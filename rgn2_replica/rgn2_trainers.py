@@ -464,6 +464,7 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
             log_dict["loss"] = loss_item.item()
             log_dict.update({k:v.mean().item() for k,v in metrics.items() if "wrap" not in k})
             metrics_list.append( log_dict )
+            
             if wandbai and WANDB:
                 wandb.log(metrics_list[-1])
 

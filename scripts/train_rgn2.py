@@ -39,6 +39,7 @@ def parse_arguments():
     parser.add_argument("--scn_thinning", help="SCN dataset thinning", type=int, default=90)
     parser.add_argument("--xray", help="only use xray structures", type=bool, default=0)
     parser.add_argument("--frac_true_torsions", help="Provide right torsions for some prots", type=bool, default=0)
+    parser.add_argument("--full_mask", help="require full mask in proteins", type=bool, default=1)
     # model params
     parser.add_argument("--embedder_model", help="Embedding model to use", default='esm1b')
     parser.add_argument("--num_layers", help="num rnn layers", type=int, default=2)
@@ -99,6 +100,7 @@ def init_wandb_config(args):
     config.max_len = args.max_len
     config.xray = bool(args.xray)
     config.frac_true_torsions = bool(args.frac_true_torsions)
+    config.full_mask = bool(args.full_mask)
 
     # model hyperparams
     config.num_layers = args.num_layers
@@ -182,6 +184,7 @@ def run_train_schedule(dataloaders, embedder, config, args):
                 min_len=config.min_len, max_len=max_len,  # MAX_LEN,
                 verbose=False, subset="train", 
                 xray_filter=config.xray,
+                full_mask=config.full_mask,
             )
         if resume: 
             optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
