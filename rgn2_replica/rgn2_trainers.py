@@ -111,7 +111,7 @@ def batched_inference(*args, model, embedder,
     if config is not None: 
         if random.random() < config.frac_true_torsions: 
             angles_label_input = rearrange(points_label, "... c d -> ... (c d)")
-            embedds[..., angles_label_input.shape[-1]:] = angles_label_input
+            embedds[..., -angles_label_input.shape[-1]:] = angles_label_input
     
     # PREDICT
     if mode in ["train", "test", "fast_test"]: 
