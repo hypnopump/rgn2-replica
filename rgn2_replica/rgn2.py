@@ -13,7 +13,9 @@ from einops import rearrange, repeat
 # custom
 import mp_nerf
 from rgn2_replica.utils import *
+# refiners
 import en_transformer
+import invariant_point_attention
 
 
 #######################
@@ -764,6 +766,7 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
 
         Input example:  (uses https://github.com/hypnopump/en-transformer)
         refiner = RGN2_Refiner_Wrapper({
+            'refiner_type': 'En',
             'refiner_detach': true, # false
             'dim': 32,
             'depth': 4,
@@ -793,33 +796,50 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
             self.__dict__["refiner_detach"] = False
 
         # create dict of acceptable inputs
-        self.refiner_args = {
-            k:v for k,v in kwargs.items() \
-            if k in set([
-                "dim", "depth", "num_tokens", "rel_pos_emb", "dim_head",
-                "heads", "num_edge_tokens", "edge_dim", "coors_hidden_dim",
-                "neighbors", "only_sparse_neighbors", "num_adj_degrees",
-                "adj_dim", "valid_neighbor_radius", "init_eps", "norm_rel_coors",
-                "norm_coors_scale_init", "use_cross_product", "talking_heads",
-                "checkpoint", "rotary_theta", "rel_dist_cutoff", "rel_dist_scale",
-            ])
-        }
-        self.refiner = en_transformer.EnTransformer(**self.refiner_args)
+        if self.refiner_type == "En": 
+            self.refiner_args = {
+                k:v for k,v in kwargs.items() \
+                if k in set([
+                    "dim", "depth", "num_tokens", "rel_pos_emb", "dim_head",
+                    "heads", "num_edge_tokens", "edge_dim", "coors_hidden_dim",
+                    "neighbors", "only_sparse_neighbors", "num_adj_degrees",
+                    "adj_dim", "valid_neighbor_radius", "init_eps", "norm_rel_coors",
+                    "norm_coors_scale_init", "use_cross_product", "talking_heads",
+                    "checkpoint", "rotary_theta", "rel_dist_cutoff", "rel_dist_scale",
+                ])
+            }
+            self.refiner = en_transformer.EnTransformer(**self.refiner_args)
+
+        elif self.refiner_type == "IPA": 
+            raise NotImplementedError("IPA refinement not yet implemented")
+            self.refiner_args = {}
+            self.refiner = invariant_point_attention.InvariantPointAttention(**self.refiner_args) 
 
     def forward(self, **data_dict):
         """ Corrects structure. """
         r_iters = []
-        for i in range(max(1, data_dict["recycle"])):
-            input_ = {
-                k:v for k,v in data_dict.items()  \
-                if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
-            }
-            pred_feats, coors = self.refiner.forward(**input_)
-            data_dict["coors"] = coors
-            # data_dict["feats"] = pred_feats # commented for recycling
+        # ensure inputs
+        if  not "recycle" in data_dict.keys(): 
+            data_dict["recycle"] = 1
+        if not "inter_recycle" in data_dict.keys(): 
+            data_dict["inter_recycle"] = False
 
-            if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
-                r_iters.append( coors.detach() )
+        for i in range(max(1, data_dict["recycle"])):
+
+            if self.refiner_type == "En": 
+                input_ = {
+                    k:v for k,v in data_dict.items()  \
+                    if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
+                }
+                pred_feats, coors = self.refiner.forward(**input_)
+                data_dict["coors"] = coors
+                # data_dict["feats"] = pred_feats # commented for recycling
+
+                if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
+                    r_iters.append( coors.detach() )
+
+            elif self.refiner_type == "IPA": 
+                raise NotImplementedError("IPA refinement not yet implemented")
 
         return pred_feats, coors, r_iters
 
