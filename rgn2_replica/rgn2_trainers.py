@@ -40,7 +40,7 @@ def batched_inference(*args, model, embedder,
     # create scaffolds
     int_seq = torch.ones(batch_dim, max_seq_len, dtype=torch.long) * 20 # padding tok
     # mask is true mask. long mask is for lstm
-    mask, long_mask = torch.zeros(2, *int_seq.shape, dtype=torch.bool)
+    mask, long_mask = torch.zeros(2, *int_seq.shape, dtype=torch.bool, device=device)
     true_coords = torch.zeros(int_seq.shape[0], int_seq.shape[1]*14, 3, device=device)
     # fill scaffolds
     for i,arg in enumerate(args): 
@@ -110,21 +110,36 @@ def batched_inference(*args, model, embedder,
     # PREDICT
     if mode in ["train", "test", "fast_test"]: 
         # get angles
-        preds, r_iters = model.forward(embedds, mask=long_mask,
-                                       recycle=recycle_func(None))      # (B, L, 4)
-    points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
-    
-    # POST-PROCESS
-    points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-        points_preds, mask=long_mask, # long_mask == True for all seq_len
-        # seq_list = None, # don't fold sidechain
-        model=model, refine_args={
-            "embedds": embedds, 
-            "int_seq": int_seq.to(device), 
-            "recycle": recycle_func(None),
-            "inter_recycle": False,
-        }
-    )
+        # todo: make it compatible with lstm and transformer
+        # preds, r_iters = model.forward(embedds, mask=long_mask,
+        #                                recycle=recycle_func(None))      # (B, L, 4)
+        preds, r_iters, rotations, translations = model.forward(embedds, mask=long_mask,
+                                       recycle=recycle_func(None))  #  (B, L, 4)
+    if preds.shape[-1] == 4:  # original LSTM or transformer result
+        points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
+
+        # POST-PROCESS
+        points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
+            points_preds, mask=long_mask, # long_mask == True for all seq_len
+            # seq_list = None, # don't fold sidechain
+            model=model, refine_args={
+                "embedds": embedds,
+                "int_seq": int_seq.to(device),
+                "recycle": recycle_func(None),
+                "inter_recycle": False,
+            }
+        )
+    else:  # IPA returns coords
+        points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process_ipa(
+            preds, rotations, mask=long_mask,  # long_mask == True for all seq_len
+            # seq_list = None, # don't fold sidechain
+            model=model, refine_args={
+                "embedds": embedds,
+                "int_seq": int_seq.to(device),
+                "recycle": recycle_func(None),
+                "inter_recycle": False,
+            }
+        )
 
     # get frames (for labels) for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 

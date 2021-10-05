@@ -138,17 +138,20 @@ def run_train_schedule(dataloaders, embedder, config, args):
     embedder = embedder.to(device)
 
     set_seed(config.seed)
-    model = RGN2_Naive(layers=config.num_layers,
-                       emb_dim=config.emb_dim+4,
-                       hidden=config.hidden,
-                       bidirectional=config.bidirectional,
-                       mlp_hidden=config.mlp_hidden,
-                       act=config.act,
-                       layer_type=config.layer_type,
-                       input_dropout=config.input_dropout,
-                       angularize=config.angularize,
-                       refiner_args=config.refiner_args,
-                       ).to(device)
+    # model = RGN2_Naive(layers=config.num_layers,
+    #                    emb_dim=config.emb_dim+4,
+    #                    hidden=config.hidden,
+    #                    bidirectional=config.bidirectional,
+    #                    mlp_hidden=config.mlp_hidden,
+    #                    act=config.act,
+    #                    layer_type=config.layer_type,
+    #                    input_dropout=config.input_dropout,
+    #                    angularize=config.angularize,
+    #                    refiner_args=config.refiner_args,
+    #                    ).to(device)
+    model = RGN2_IPA(
+        embedding_dim=config.emb_dim+4,
+    ).to(device)
     
     if args.resume_name is not None: 
         model.load_my_state_dict(torch.load(args.resume_name, map_location=device))
