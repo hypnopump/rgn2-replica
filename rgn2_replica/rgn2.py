@@ -13,7 +13,9 @@ from einops import rearrange, repeat
 # custom
 import mp_nerf
 from rgn2_replica.utils import *
+# refiners
 import en_transformer
+import invariant_point_attention
 
 
 #######################
@@ -31,13 +33,11 @@ def prediction_wrapper(x: torch.Tensor, pred: torch.Tensor):
         Outputs: (B, L, Emb_dim)
     """
     # ensure preds' first values
-    pred[:, 0, [0, 2]] = 0.
-    pred[:, 0, [1, 3]] = 1.
-    pred[:, 1, 2] = 0.
-    pred[:, 1, 3] = 1.
+    pred[:, 1, 2] = 1.
+    pred[:, 1, 3] = 0.
     # refill x with preds
     x_ = x.clone()
-    x_[:, :-1, -pred.shape[-1]:] = pred.detach()
+    x_[:, 1:-1, -pred.shape[-1]:] = pred[:, 1:].detach()
     return x_
 
 
@@ -61,11 +61,12 @@ def pred_post_process(points_preds: torch.Tensor,
     device = points_preds.device
     if mask is None:
         mask = torch.ones(points_preds.shape[:-2], dtype=torch.bool)
+    lengths = mask.sum(dim=-1).cpu().detach().tolist()
     # restate first values to known ones (1st angle, 1s + 2nd dihedral)
-    points_preds[:, 0, [0, 1], 1] = 1.
-    points_preds[:, 0, [0, 1], 0] = 0.
-    points_preds[:, 1, 1, 1] = 1.
-    points_preds[:, 1, 1, 0] = 0.
+    points_preds[:, 0, [0, 1], 0] = 1.
+    points_preds[:, 0, [0, 1], 1] = 0.
+    points_preds[:, 1, 1, 0] = 1.
+    points_preds[:, 1, 1, 1] = 0.
 
     # rebuild ca trace with angles - norm vectors to ensure mod=1. - (B, L, 14, 3)
     ca_trace_pred = torch.zeros(*points_preds.shape[:-2], 14, 3, device=device)
@@ -74,38 +75,48 @@ def pred_post_process(points_preds: torch.Tensor,
             points_preds.shape[0], -1, 4
         )
     )
-    ca_trace_pred = mp_nerf.utils.ensure_chirality(ca_trace_pred)
+    # delete extra part and chirally reflect
+    ca_trace_pred_aux = torch.zeros_like(ca_trace_pred)
+    for i in range(points_preds.shape[0]): 
+        ca_trace_pred_aux[i, :lengths[i]] = ca_trace_pred_aux[i, :lengths[i]] + \
+                                            mp_nerf.utils.ensure_chirality(ca_trace_pred[i:i+1, :lengths[i]])
+    ca_trace_pred = ca_trace_pred_aux
 
     # use model's refiner if available
     if model is not None:
         if model.refiner is not None:
             for i in range(mask.shape[0]):
                 adj_mat = torch.from_numpy(
-                    np.eye(mask[i].shape[-1], k=1) + np.eye(mask[i].shape[-1], k=1).T
+                    np.eye(lengths[i], k=1) + np.eye(lengths[i], k=1).T
                 ).bool().to(device).unsqueeze(0)
 
                 coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
                 coors = coors.detach() if model.refiner.refiner_detach else coors
                 feats, coors, r_iters = model.refiner(
-                    feats=refine_args[model.refiner.feats_inputs][i:i+1, :mask[i].shape[-1]], # embeddings
+                    feats=refine_args[model.refiner.feats_inputs][i:i+1, :lengths[i]], # embeddings
                     coors=coors,
                     adj_mat=adj_mat,
                     recycle=refine_args["recycle"],
                     inter_recycle=refine_args["inter_recycle"],
                 )
-                ca_trace_pred[i:i+1, :mask[i].shape[-1], 1] = coors
+                ca_trace_pred[i:i+1, :lengths[i], 1] = coors
 
     # calc BB - can't do batched bc relies on extremes.
     wrapper_pred = torch.zeros_like(ca_trace_pred)
     for i in range(points_preds.shape[0]):
-        wrapper_pred[i, mask[i]] = mp_nerf.proteins.ca_bb_fold(
-            ca_trace_pred[i:i+1, mask[i], 1]
+        wrapper_pred[i, :lengths[i]] = mp_nerf.proteins.ca_bb_fold( 
+            ca_trace_pred[i:i+1, :lengths[i], 1] 
         )
+        # Add sidechain
         if seq_list is not None:
+            # solve backbone steric clashes
+            wrapper_pred[i, :lengths[i]] = mp_nerf.ml_utils.backbone_forcefield(
+                coords=wrapper_pred[i, :lengths[i]], coeffs=[3,5,3,1], lr=1e-2
+            )
             # build sidechains
             scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
-            wrapper_pred[i, mask[i]], _ = mp_nerf.proteins.sidechain_fold(
-                wrapper_pred[i, mask[i]], **scaffolds, c_beta="backbone"
+            wrapper_pred[i, :lengths[i]], _ = mp_nerf.proteins.sidechain_fold(
+                wrapper_pred[i, :lengths[i]], **scaffolds, c_beta="backbone"
             )
 
     return points_preds, ca_trace_pred, frames_preds, wrapper_pred
@@ -735,12 +746,14 @@ class RGN2_Naive(torch.nn.Module):
         own_state = self.state_dict()
         in_model_out_of_dict = set(own_state.keys())
         in_dict_out_of_model = set([])
+
+        # iterate and assign
         for name, param in state_dict.items():
             if name not in own_state:
                 in_dict_out_of_model.add(name)
                 continue
 
-            if isinstance(param, torch.nn.Parameter):
+            if isinstance(param, torch.nn.Parameter) or isinstance(param, torch.Tensor) :
                 # backwards compatibility for serialized parameters
                 in_model_out_of_dict.remove(name)
                 param = param.data
@@ -758,6 +771,7 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
 
         Input example:  (uses https://github.com/hypnopump/en-transformer)
         refiner = RGN2_Refiner_Wrapper({
+            'refiner_type': 'En',
             'refiner_detach': true, # false
             'dim': 32,
             'depth': 4,
@@ -787,33 +801,50 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
             self.__dict__["refiner_detach"] = False
 
         # create dict of acceptable inputs
-        self.refiner_args = {
-            k:v for k,v in kwargs.items() \
-            if k in set([
-                "dim", "depth", "num_tokens", "rel_pos_emb", "dim_head",
-                "heads", "num_edge_tokens", "edge_dim", "coors_hidden_dim",
-                "neighbors", "only_sparse_neighbors", "num_adj_degrees",
-                "adj_dim", "valid_neighbor_radius", "init_eps", "norm_rel_coors",
-                "norm_coors_scale_init", "use_cross_product", "talking_heads",
-                "checkpoint", "rotary_theta", "rel_dist_cutoff", "rel_dist_scale",
-            ])
-        }
-        self.refiner = en_transformer.EnTransformer(**self.refiner_args)
+        if self.refiner_type == "En": 
+            self.refiner_args = {
+                k:v for k,v in kwargs.items() \
+                if k in set([
+                    "dim", "depth", "num_tokens", "rel_pos_emb", "dim_head",
+                    "heads", "num_edge_tokens", "edge_dim", "coors_hidden_dim",
+                    "neighbors", "only_sparse_neighbors", "num_adj_degrees",
+                    "adj_dim", "valid_neighbor_radius", "init_eps", "norm_rel_coors",
+                    "norm_coors_scale_init", "use_cross_product", "talking_heads",
+                    "checkpoint", "rotary_theta", "rel_dist_cutoff", "rel_dist_scale",
+                ])
+            }
+            self.refiner = en_transformer.EnTransformer(**self.refiner_args)
+
+        elif self.refiner_type == "IPA": 
+            raise NotImplementedError("IPA refinement not yet implemented")
+            self.refiner_args = {}
+            self.refiner = invariant_point_attention.InvariantPointAttention(**self.refiner_args) 
 
     def forward(self, **data_dict):
         """ Corrects structure. """
         r_iters = []
-        for i in range(max(1, data_dict["recycle"])):
-            input_ = {
-                k:v for k,v in data_dict.items()  \
-                if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
-            }
-            pred_feats, coors = self.refiner.forward(**input_)
-            data_dict["coors"] = coors
-            # data_dict["feats"] = pred_feats # commented for recycling
+        # ensure inputs
+        if  not "recycle" in data_dict.keys(): 
+            data_dict["recycle"] = 1
+        if not "inter_recycle" in data_dict.keys(): 
+            data_dict["inter_recycle"] = False
 
-            if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
-                r_iters.append( coors.detach() )
+        for i in range(max(1, data_dict["recycle"])):
+
+            if self.refiner_type == "En": 
+                input_ = {
+                    k:v for k,v in data_dict.items()  \
+                    if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
+                }
+                pred_feats, coors = self.refiner.forward(**input_)
+                data_dict["coors"] = coors
+                # data_dict["feats"] = pred_feats # commented for recycling
+
+                if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
+                    r_iters.append( coors.detach() )
+
+            elif self.refiner_type == "IPA": 
+                raise NotImplementedError("IPA refinement not yet implemented")
 
         return pred_feats, coors, r_iters
 

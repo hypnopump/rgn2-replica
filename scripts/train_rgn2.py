@@ -39,6 +39,7 @@ def parse_arguments():
     parser.add_argument("--scn_thinning", help="SCN dataset thinning", type=int, default=90)
     parser.add_argument("--xray", help="only use xray structures", type=bool, default=0)
     parser.add_argument("--frac_true_torsions", help="Provide right torsions for some prots", type=bool, default=0)
+    parser.add_argument("--full_mask", help="require full mask in proteins", type=bool, default=1)
     # model params
     parser.add_argument("--embedder_model", help="Embedding model to use", default='esm1b')
     parser.add_argument("--num_layers", help="num rnn layers", type=int, default=2)
@@ -53,7 +54,7 @@ def parse_arguments():
                         help="number of recycling iters. set to 1 to speed training.",)
     # refiner params
     parser.add_argument("--refiner_args", help="args for refiner module", type=json.loads, default={})
-    parser.add_argument("--seed", help="Random seed", default=42)
+    parser.add_argument("--seed", help="Random seed", default=101)
 
     return parser.parse_args()
 
@@ -99,6 +100,7 @@ def init_wandb_config(args):
     config.max_len = args.max_len
     config.xray = bool(args.xray)
     config.frac_true_torsions = bool(args.frac_true_torsions)
+    config.full_mask = bool(args.full_mask)
 
     # model hyperparams
     config.num_layers = args.num_layers
@@ -171,23 +173,27 @@ def run_train_schedule(dataloaders, embedder, config, args):
             'batch_size': batch_size
         }, commit=False)
 
-        if sum([steps[j][0] for j in range(i)]) < args.resume_iters: continue
+        if sum([steps[j][0] for j in range(i)]) < args.resume_iters: 
+            continue
 
-        if resume:
-            if seed is not None:
-                set_seed(seed)
+        if True:
+            # if seed is not None:
+            set_seed(seed)
             get_prot_ = mp_nerf.utils.get_prot(
                 dataloader_=dataloaders,
                 vocab_=VOCAB,
                 min_len=config.min_len, max_len=max_len,  # MAX_LEN,
                 verbose=False, subset="train", 
                 xray_filter=config.xray,
+                full_mask=config.full_mask,
             )
-
+        if resume: 
             optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
             resume = False
-        else:
+        elif lr != steps[i-1][2]:
+            print("changing LR from {0} to {1}".format(steps[i-1][2], steps[i][2]))
             for g in optimizer.param_groups:
+                print(g, g["lr"], lr)
                 g['lr'] = lr
 
         # train
@@ -200,7 +206,7 @@ def run_train_schedule(dataloaders, embedder, config, args):
             loss_f=loss_f,  # + 0.005 * metrics['drmsd'].mean()",
             clip=clip,
             accumulate_every=batch_size,
-            log_every=4,
+            log_every=1,
             seed=seed,
             recycle_func=lambda x: random.randint(1, config.max_recycles_train),  # 1
             wandbai=True,
