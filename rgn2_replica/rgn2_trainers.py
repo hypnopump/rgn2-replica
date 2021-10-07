@@ -411,6 +411,11 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
     model = model.train()
     device = next(model.parameters()).device
 
+    # change to eval() if output is going to be detached
+    if model is not None:
+        if model.refiner is not None:
+            model = model.eval()
+
     metrics_list = []
     b = 0
     tic = time.time()
