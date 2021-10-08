@@ -23,6 +23,7 @@ def parse_arguments():
     input_group.add_argument("--pdb_input", type=str, help="PDB file for refinement")
 
     # model params - same as training
+    input_group.add_argument("--model", type=str, help="Model file for prediction")
     parser.add_argument("--embedder_model", help="Embedding model to use", default='esm1b')
     parser.add_argument("--num_layers", help="num rnn layers", type=int, default=2)
     parser.add_argument("--emb_dim", help="embedding dimension", type=int, default=1280)
@@ -45,7 +46,7 @@ def parse_arguments():
     parser.add_argument("--output_path", type=str, default=None,  #  prot_id.fasta -> prot_id_0.fasta,
                         help="path for output .pdb files. Defaults to input name + seq num")
     # refiner params
-    parser.add_argument("--af2_refine", type=int, default=0, help="refine output with AlphaFold2. 0 for no refinement")
+    parser.add_argument("--af2_refine", type=bool, default=False, help="refine output with AlphaFold2")
     parser.add_argument("--refiner_args", help="args for refiner module", type=json.loads, default={})
     parser.add_argument("--seed", help="Random seed", default=101)
 
@@ -62,8 +63,8 @@ def parse_arguments():
 
 
 def load_model(args):
-    mlp_hidden = [128, 4 if args.angularize == 0 else args.angularize]  # 4 # 64
     config = args
+    config.mlp_hidden = [128, 4 if args.angularize == 0 else args.angularize]  # 4 # 64
     set_seed(config.seed)
     model = RGN2_Naive(layers=config.num_layers,
                        emb_dim=config.emb_dim+4,
@@ -97,7 +98,7 @@ def predict(model, embedder, seq_list, seq_names, args):
             seq_list[args.batch_size*i: args.batch_size*(i+1)],
             model=model,
             embedder=embedder,
-            recycle_func=lambda x: int(args.recycle),
+            recycle_func=lambda x: int(args.num_recycles_pred),
             device=args.device
         )
         for k, v in aux.items():
@@ -127,6 +128,8 @@ def refine(seq_list, pdb_files, args):
         result = rosetta_refine(seq_list, pdb_files, args)
     elif args.af2_refine:
         result = af2_refine(pdb_files, args)
+    else:
+        result = None
 
     return result
 
