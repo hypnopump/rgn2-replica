@@ -1,6 +1,11 @@
 from typing import Optional
-import pyrosetta
 from tqdm import tqdm
+
+try: 
+    import pyrosetta
+except Exception as e:
+    print(e) 
+
 
 """
 NOTE: Remember to initialize PyRosetta before using these functions

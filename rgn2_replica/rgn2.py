@@ -611,6 +611,14 @@ class RGN2_Naive(torch.nn.Module):
             # torch.nn.init.constant_(module.lstm_cell.bias_hh[ shape//4 : shape//2 ], 1.)
 
 
+    def apply_dropout(self, x, i, d=4): 
+        """ Applies dropout but skips last 4 dims (encoding for torsions) 
+            in the first pss (i=0)
+        """
+        return self.dropout_l(x) if i != 0 else \
+               torch.cat([self.dropout_l(x[..., :-d], x[..., -d:])], dim=-1)
+
+
     def forward(self, x:torch.Tensor, mask: Optional[torch.Tensor] = None,
                      recycle:int = 1, inter_recycle:bool = False):
         """ Inputs:
@@ -640,7 +648,7 @@ class RGN2_Naive(torch.nn.Module):
 
             for k in range(self.num_layers):
                 x_f, (h_n, c_n) = self.stacked_lstm_f[k](
-                    self.dropout_l(x_pred) , mask=mask
+                    self.apply_dropout(x_pred, i=k, d=4), mask=mask
                 )
 
                 if self.bidirectional:
@@ -651,7 +659,7 @@ class RGN2_Naive(torch.nn.Module):
 
                     # back pass
                     x_b, (h_n_b, c_n_b) = self.stacked_lstm_b[k](
-                        self.dropout_l(x_b), mask=mask
+                        self.apply_dropout(x_b, i=k, d=4), mask=mask
                     )
                     # reverse again to match forward direction
                     for l, length in enumerate(seq_lens):

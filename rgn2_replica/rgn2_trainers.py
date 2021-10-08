@@ -411,6 +411,11 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
     model = model.train()
     device = next(model.parameters()).device
 
+    # change to eval() if output is going to be detached
+    if model is not None:
+        if model.refiner is not None:
+            model = model.eval()
+
     metrics_list = []
     b = 0
     tic = time.time()
@@ -552,7 +557,7 @@ def infer_from_seqs(seq_list, model, embedder,
     
     # POST-PROCESS
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-        points_preds, seq_list=seq_list, mask=mask
+        points_preds, seq_list=seq_list, mask=mask, model=model
     )
 
     return {
