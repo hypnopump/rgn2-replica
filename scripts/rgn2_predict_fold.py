@@ -1,5 +1,6 @@
 # Author: Eirc Alcaide (@hypnopump)
 from pathlib import Path
+import json
 import torch
 # process
 import argparse
@@ -13,7 +14,7 @@ from rgn2_replica.rgn2_trainers import infer_from_seqs
 
 def parse_arguments():
     # !python redictor.py --input proteins.fasta --model ../rgn2_models/baseline_run@_125K.pt --device 2
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser('Predict with RGN2 model')
     input_group = parser.add_mutually_exclusive_group(required=True)
 
     # inputs
@@ -21,30 +22,37 @@ def parse_arguments():
     parser.add_argument("--batch_size", type=int, default=1, help="batch size for prediction")
     input_group.add_argument("--pdb_input", type=str, help="PDB file for refinement")
 
-    # model
-    input_group.add_argument("--model", type=str, help="Model file for prediction")
+    # model params - same as training
     parser.add_argument("--embedder_model", help="Embedding model to use", default='esm1b')
-    parser.add_argument("--emb_dim", help="embedding dimension", type=int, default=1280)
     parser.add_argument("--num_layers", help="num rnn layers", type=int, default=2)
+    parser.add_argument("--emb_dim", help="embedding dimension", type=int, default=1280)
     parser.add_argument("--hidden", help="hidden dimension", type=int, default=1024)
-    parser.add_argument("--bidirectional", help="bidirectionality", type=bool, default=0)
     parser.add_argument("--act", help="hidden activation", type=str, default="silu")
     parser.add_argument("--layer_type", help="rnn layer type", type=str, default="LSTM")
     parser.add_argument("--input_dropout", help="input dropout", type=float, default=0.5)
+    parser.add_argument("--bidirectional", help="bidirectionality", type=bool, default=0)
     parser.add_argument("--angularize", help="angularization units. 0 for reg", type=int, default=0)
+    parser.add_argument("--num_recycles_pred", type=int, default=10, 
+                        help="number of recycling iters. set to 1 to speed inference.",)
 
-    # refinement options
-    parser.add_argument("--af2_refine", type=int, default=0, help="refine output with AlphaFold2. 0 for no refinement")
+    # rosetta
     parser.add_argument("--rosetta_refine", type=int, default=0, help="refine output with Rosetta. 0 for no refinement")
     parser.add_argument("--rosetta_relax", type=int, default=0, help="relax output with Rosetta. 0 for no relax.")
     parser.add_argument("--coord_constraint", type=float, default=1.0, help="constraint for Rosetta relax. higher=stricter.")
-    parser.add_argument("--recycle", default=10, help="Recycling iterations")
-    parser.add_argument("--device", default="cpu", help="['cpu', 'cuda:0', 'cuda:1', ...], cpu is slow!")
+    parser.add_argument("--device", help="Device ('cpu', cuda:0', ...)", type=str, required=True)
 
     # outputs
     parser.add_argument("--output_path", type=str, default=None,  #  prot_id.fasta -> prot_id_0.fasta,
                         help="path for output .pdb files. Defaults to input name + seq num")
+    # refiner params
+    parser.add_argument("--af2_refine", type=int, default=0, help="refine output with AlphaFold2. 0 for no refinement")
+    parser.add_argument("--refiner_args", help="args for refiner module", type=json.loads, default={})
+    parser.add_argument("--seed", help="Random seed", default=101)
+
     args = parser.parse_args()
+    args.bidirectional = bool(args.bidirectional)
+    args.angularize = bool(args.angularize)
+    args.refiner_args = dict(args.refiner_args)
 
     # mod parsed args
     if args.output_path is None:
@@ -55,27 +63,30 @@ def parse_arguments():
 
 def load_model(args):
     mlp_hidden = [128, 4 if args.angularize == 0 else args.angularize]  # 4 # 64
-    model = RGN2_Naive(
-        layers=args.num_layers,
-        emb_dim=args.emb_dim+4,
-        hidden=args.hidden,
-        bidirectional=args.bidirectional,
-        mlp_hidden=mlp_hidden,
-        act=args.act,
-        layer_type=args.layer_type,
-        input_dropout=args.input_dropout,
-        angularize=args.angularize,
-    ).to(args.device)
+    config = args
+    set_seed(config.seed)
+    model = RGN2_Naive(layers=config.num_layers,
+                       emb_dim=config.emb_dim+4,
+                       hidden=config.hidden,
+                       bidirectional=config.bidirectional,
+                       mlp_hidden=config.mlp_hidden,
+                       act=config.act,
+                       layer_type=config.layer_type,
+                       input_dropout=config.input_dropout,
+                       angularize=config.angularize,
+                       refiner_args=config.refiner_args,
+                       ).to(args.device)
 
-    model.load_state_dict(torch.load(args.model, map_location=args.device))
+    model.load_my_state_dict(torch.load(args.model, map_location=args.device))
+    model = model.eval()
 
-    return model.eval()
-
-
-def predict(model, seq_list, seq_names, args):
-    # Load ESM-1b model
+    # # Load ESM-1b model
     embedder = get_embedder(args, args.device)
 
+    return model.eval(), embedder
+
+
+def predict(model, embedder, seq_list, seq_names, args):
     # batch wrapper
     pred_dict = {}
     num_batches = len(seq_list) // args.batch_size + \
@@ -180,8 +191,8 @@ def predict_refine():
         seq_list, seq_names = None, None
 
     if args.model is not None:
-        model = load_model(args)
-        _, pdb_files = predict(model, seq_list, seq_names, args)
+        model, embedder = load_model(args)
+        _, pdb_files = predict(model, embedder, seq_list, seq_names, args)
     else:
         pdb_files = [args.pdb_input]
 
