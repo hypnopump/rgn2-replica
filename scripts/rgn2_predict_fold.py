@@ -6,7 +6,6 @@ import argparse
 # custom
 import sidechainnet
 from rgn2_replica import *
-from rgn2_replica.rgn2_refine import *
 from rgn2_replica.embedders import get_embedder
 from rgn2_replica.rgn2_utils import seqs_from_fasta
 from rgn2_replica.rgn2_trainers import infer_from_seqs
@@ -15,13 +14,15 @@ from rgn2_replica.rgn2_trainers import infer_from_seqs
 def parse_arguments():
     # !python redictor.py --input proteins.fasta --model ../rgn2_models/baseline_run@_125K.pt --device 2
     parser = argparse.ArgumentParser()
+    input_group = parser.add_mutually_exclusive_group(required=True)
 
     # inputs
     parser.add_argument("--input", help="FASTA or MultiFASTA with protein sequences to predict")
     parser.add_argument("--batch_size", type=int, default=1, help="batch size for prediction")
+    input_group.add_argument("--pdb_input", type=str, help="PDB file for refinement")
 
     # model
-    parser.add_argument("--model", type=str, help="Model file for prediction")
+    input_group.add_argument("--model", type=str, help="Model file for prediction")
     parser.add_argument("--embedder_model", help="Embedding model to use", default='esm1b')
     parser.add_argument("--emb_dim", help="embedding dimension", type=int, default=1280)
     parser.add_argument("--num_layers", help="num rnn layers", type=int, default=2)
@@ -33,6 +34,7 @@ def parse_arguments():
     parser.add_argument("--angularize", help="angularization units. 0 for reg", type=int, default=0)
 
     # refinement options
+    parser.add_argument("--af2_refine", type=int, default=0, help="refine output with AlphaFold2. 0 for no refinement")
     parser.add_argument("--rosetta_refine", type=int, default=0, help="refine output with Rosetta. 0 for no refinement")
     parser.add_argument("--rosetta_relax", type=int, default=0, help="relax output with Rosetta. 0 for no relax.")
     parser.add_argument("--coord_constraint", type=float, default=1.0, help="constraint for Rosetta relax. higher=stricter.")
@@ -111,15 +113,15 @@ def predict(model, seq_list, seq_names, args):
 def refine(seq_list, pdb_files, args):
     # refine structs
     if args.rosetta_refine:
-        rosetta_refine(seq_list, pdb_files, args)
-    else:
-        af2_refine(pdb_files)
+        result = rosetta_refine(seq_list, pdb_files, args)
+    elif args.af2_refine:
+        result = af2_refine(pdb_files, args)
 
-    print("All tasks done. Exiting...")
+    return result
 
 
 def rosetta_refine(seq_list, pdb_files, args):
-    from rgn2_replica.rgn2_refine import *
+    from rgn2_replica.rgn2_refine import quick_refine, relax_refine
 
     for i, seq in enumerate(seq_list):
         # only refine
@@ -141,10 +143,10 @@ def rosetta_refine(seq_list, pdb_files, args):
         print(pdb_files[i], "was refined successfully")
 
 
-def af2_refine(pdb_files):
+def af2_refine(pdb_files, args):
     from alphafold.relax import relax
     from alphafold.common import protein
-    
+
     amber_relaxer = relax.AmberRelaxation(
         max_iterations=0,
         tolerance=2.39,
@@ -152,25 +154,42 @@ def af2_refine(pdb_files):
         exclude_residues=[],
         max_outer_iterations=20)
 
-    relaxed_pdbs = []
+    out_dir = Path(args.output_path)
+    relaxed_pdbs_files = []
     for pdb_file in pdb_files:
-        pdb_str = Path(pdb_file).read_text()
+        pdb_file = Path(pdb_file)
+        pdb_str = pdb_file.read_text()
         prot = protein.from_pdb_string(pdb_str)
         min_pdb, debug_data, violations = amber_relaxer.process(prot=prot)
 
-        relaxed_pdbs.append(min_pdb)
+        dest_file = out_dir / pdb_file.name
+        dest_file.write_text(min_pdb)
 
-    return relaxed_pdbs
+        relaxed_pdbs_files.append(dest_file)
+
+    return relaxed_pdbs_files
+
+
+def predict_refine():
+    args = parse_arguments()
+
+    # get sequences
+    if args.input is not None:
+        seq_list, seq_names = seqs_from_fasta(args.input, names=True)
+    else:
+        seq_list, seq_names = None, None
+
+    if args.model is not None:
+        model = load_model(args)
+        _, pdb_files = predict(model, seq_list, seq_names, args)
+    else:
+        pdb_files = [args.pdb_input]
+
+    relaxed_pdbs = refine(seq_list, pdb_files, args)
+
+    print('result files:')
+    print(relaxed_pdbs)
 
 
 if __name__ == "__main__":
-    args = parse_arguments()
-
-    model = load_model(args)
-
-    # get sequences
-    seq_list, seq_names = seqs_from_fasta(args.input, names=True)
-
-    pred_dict, pdb_files = predict(model, seq_list, seq_names, args)
-
-    relaxed_pdbs = refine(seq_list, pdb_files, args)
+    predict_refine()
