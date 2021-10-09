@@ -441,7 +441,7 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
                 true_points=infer["points_label"][:, :-1], # [angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
             )
 
-            # violation loss btween calphas - L1
+            # violation loss btween calphas - L1 # >= 0
             dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
                                            infer["wrapper_pred"][:, :, 1],) # B, L, L
             dist_mat = dist_mat + torch.eye(dist_mat.shape[-1]).unsqueeze(0).to(dist_mat)*5.
