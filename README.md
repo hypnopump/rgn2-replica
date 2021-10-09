@@ -8,8 +8,16 @@ To eventually become an unofficial working Pytorch implementation of [RGN2](http
 $ pip install rgn2-replica
 ```
 
-## To load sample dataset
+## Structure Prediction
 
+### Installation
+* Pytorch3D: https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md
+
+* **NOTES**: 
+* Use functionality provided in [MP-NeRF](https://github.com/EleutherAI/mp_nerf) wherever possible (avoid repetition). 
+
+## Language Model
+### To load sample dataset
 
 ```
 from datasets import load_from_disk
@@ -23,7 +31,7 @@ df.sample(5)
 ```
 
 
-## To train ProteinLM
+### To train ProteinLM
 
 Run the following command with default parameters
 
@@ -32,49 +40,6 @@ python -m scripts.lmtrainer
 ```
 This will start the run using sample dataset in repo directory on CPU.
 
-
-### TO-DO LIST: ordered by priority
-
-* [x] ~~Provide basic package and file structure~~
-* [ ] **RGN2**:
-	* [x] ~~Contribute adaptation of RGN1 for different ops~~
-		* [x] ~~Simple LSTM with:~~ 
-		    * [x] ~~Inputs (B, L, emb_dim)~~
-		    * [x] ~~Outputs (B, L, 4) (4 features which should be outputs of linear projections)~~
-	* [x] ~~Find a good (and reproducible) training scheme~~ in collab w/ [@Serhiy-Shekhovtsov](https://github.com/Serhiy-Shekhovtsov)
-	* [x] ~Benchmark regression vs classification of torsional alphabet~
-* [ ] **Language Model**: 
-	* [x] ~~basic tokenizer~~ by [@gurvindersingh](https://github.com/gurvindersingh)
-	* [x] ~~basic architecture~~ by [@gurvindersingh](https://github.com/gurvindersingh)
-	* [ ] adapt for desired outputs
-	* [ ] find a combination of pretraining losses
-
-
-* [ ] To be merged when first versions of RGN are ready: 
-	* [x] ~~Geometry module~~ 
-	* [x] ~~Adapt functionality from [MP-NeRF](https://github.com/EleutherAI/mp_nerf):~~
-		* [x] ~~Sidechain building~~
-		* [x] ~~Full backbone from CA~~
-		* [x] ~~Fast loss functions and metrics~~
-		* [x] ~~Modifications to convert LSTM cell into RGN cell~~
-
-* [ ] Contirbute trainer classes / functionality. 
-	* [ ] Sequence preprocessing for AminoBERT
-		* [x] ~~inverted fragments~~
-		* [x] ~~sequence masking~~
-		* [x] ~~loss function wrapper v1~~ by [@Serhiy-Shekhovtsov](https://github.com/Serhiy-Shekhovtsov)
-		* [x] ~~Sample dataset~~ by [@gurvindersingh](https://github.com/gurvindersingh)
-		* [ ] Dataloder
-		* [ ] ...
-
-* [x] Contribute Data Infra for training: 
-	* [x] Sequences: UniParc sequences, etc [@gurvindersingh](https://github.com/gurvindersingh)
-	* [x] Structures: will use the amazing [sidechainnet](https://github.com/jonathanking/sidechainnet) work by Jonathan King  
-
-* [x] ~Contribute Rosetta Scripts~ by [@jeffreyruffolo](https://github.com/jeffreyruffolo)
-
-* **NOTES**: 
-* Use functionality provided in [MP-NeRF](https://github.com/EleutherAI/mp_nerf) wherever possible (avoid repetition). 
 
 ## Contribute: 
 

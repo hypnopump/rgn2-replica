@@ -24,6 +24,7 @@ setup(
     'tqdm',
     'mp-nerf',
     'en-transformer>=0.5.0',
+    'invariant-point-attention>=0.1.4',
     'datasets>=1.10',
     'transformers>=4.2',
     'x-transformers>=0.16.1',

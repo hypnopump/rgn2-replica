@@ -10,6 +10,10 @@ import torch
 import torch.nn.functional as F
 from x_transformers import XTransformer, Encoder
 from einops import rearrange, repeat
+try: 
+    from pytorch3d.transforms import quaternion_multiply, quaternion_to_matrix
+except Exception as e: 
+    print("PyTorch3D  not installed. Continuing")
 # custom
 import mp_nerf
 from rgn2_replica.utils import *
@@ -86,20 +90,35 @@ def pred_post_process(points_preds: torch.Tensor,
     if model is not None:
         if model.refiner is not None:
             for i in range(mask.shape[0]):
-                adj_mat = torch.from_numpy(
-                    np.eye(lengths[i], k=1) + np.eye(lengths[i], k=1).T
-                ).bool().to(device).unsqueeze(0)
+                feats = refine_args[model.refiner.feats_inputs][i:i+1, :lengths[i]]
+                
+                # Entransformer as refiner
+                if model.refiner.refiner_type == "En": 
+                    adj_mat = torch.from_numpy(
+                        np.eye(lengths[i], k=1) + np.eye(lengths[i], k=1).T
+                    ).bool().to(device).unsqueeze(0)
 
-                coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
-                coors = coors.detach() if model.refiner.refiner_detach else coors
-                feats, coors, r_iters = model.refiner(
-                    feats=refine_args[model.refiner.feats_inputs][i:i+1, :lengths[i]], # embeddings
-                    coors=coors,
-                    adj_mat=adj_mat,
-                    recycle=refine_args["recycle"],
-                    inter_recycle=refine_args["inter_recycle"],
-                )
-                ca_trace_pred[i:i+1, :lengths[i], 1] = coors
+                    coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
+                    coors = coors.detach() if model.refiner.refiner_detach else coors
+                    feats, coors, r_iters = model.refiner(
+                        feats=feats, # embeddings
+                        coors=coors,
+                        adj_mat=adj_mat,
+                        recycle=refine_args["recycle"],
+                        inter_recycle=refine_args["inter_recycle"],
+                    )
+                # IPA-transformer as refiner
+                elif model.refiner.refiner_type == "IPA": 
+                    feats, coors, r_iters = model.refiner(
+                        feats=feats, 
+                        # mask would be supported for batch.
+                        mask=None, # use for batch dim?
+                        recycle=refine_args["recycle"],
+                        inter_recycle=refine_args["inter_recycle"],
+                    )
+
+                ca_trace_pred[i:i+1, :lengths[i], 1] = \
+                    ca_trace_pred[i:i+1, :lengths[i], 1] * 0. + coors
 
     # calc BB - can't do batched bc relies on extremes.
     wrapper_pred = torch.zeros_like(ca_trace_pred)
@@ -391,6 +410,110 @@ class PeepLSTMCell(torch.jit.ScriptModule):
 ##############
 
 
+class RGN2_IPA(torch.nn.Module):
+    def __init__(self, embedding_dim=1280, feats_out=0, 
+                       structure_module_depth=8, predict_points=False
+        ):
+        """ IPA-based refiner as a drop-in for En-Transformer after LSTM/Transformer.
+            Inputs:
+            * embedding_dim: int. input dimension. 
+            * feats_out: int. dims to project out feats. identity if 0.
+            * structure_module_depth: int. 
+            * predict_points: int. predict same format as En.  
+                                   otherwise returns frames and rots
+        """
+        super(RGN2_IPA, self).__init__()
+        # store params
+        self.structure_module_depth = structure_module_depth
+        self.predict_points = predict_points
+        self.feats_out = feats_out
+
+        """
+        IPA stuff
+        """
+        with torch_default_dtype(torch.float32):
+            self.ipa_block = invariant_point_attention.IPABlock(
+                dim=self.embedding_dim,
+                heads=4, #structure_module_heads,
+                require_pairwise_repr=False
+            )
+
+            self.to_quaternion_update = torch.nn.Linear(self.embedding_dim, 6)
+
+        init_zero_(self.ipa_block.attn.to_out)
+
+        self.to_points = torch.nn.Linear(self.embedding_dim, 3)
+        self.to_feats = torch.nn.Identity() if self.feats_out in [0, False, None] else \
+                        torch.nn.Linear(self.embedding_dim, self.feats_out)
+                        
+
+    def forward(self, x, mask : Optional[torch.Tensor] = None,):
+        """ Inputs:
+            * x (B, L, Emb_dim)
+            Outputs: (B, L, 4).
+        """
+
+        b, n, device = *x.shape[:2], x.device
+
+        with torch_default_dtype(torch.float32):
+            quaternions = torch.tensor([1., 0., 0., 0.], device=device)
+            quaternions = repeat(quaternions, 'd -> b n d', b=b, n=n)
+            translations = torch.zeros((b, n, 3), device=device)
+
+            # go through the layers and apply invariant point attention and feedforward
+
+            for i in range(self.structure_module_depth):
+                is_last = i == (self.structure_module_depth - 1)
+
+                # the detach comes from
+                # https://github.com/deepmind/alphafold/blob/0bab1bf84d9d887aba5cfb6d09af1e8c3ecbc408/alphafold/model/folding.py#L383
+                rotations = quaternion_to_matrix(quaternions)
+
+                if not is_last:
+                    rotations = rotations.detach()
+
+                x = self.ipa_block(
+                    x,
+                    mask=mask,
+                    # pairwise_repr=pairwise_repr,
+                    rotations=rotations,
+                    translations=translations
+                )
+
+                # update quaternion and translation
+
+                quaternion_update, translation_update = self.to_quaternion_update(x).chunk(2, dim=-1)
+                quaternion_update = F.pad(quaternion_update, (1, 0), value=1.)
+
+                quaternions = quaternion_multiply(quaternions, quaternion_update)
+                translations = translations + torch.einsum('b n c, b n c r -> b n r', translation_update, rotations)
+
+            points_local = self.to_points(x)
+            feats_local = self.to_feats(x)
+            rotations = quaternion_to_matrix(quaternions)
+            x_pred = torch.einsum('b n c, b n c d -> b n d', points_local, rotations) + translations
+
+        x_pred = x_pred.type(x.dtype).to(x.device)
+
+        if not self.predict_points:
+            # todo:
+            return feats_local, x_pred, rotations, translations
+
+        return feats_local, x_pred
+
+
+    def predict_fold(self, x, mask : Optional[torch.Tensor] = None,
+                          recycle:int = 1, inter_recycle:bool = False):
+        """ Predicts all angles at once so no need for AR prediction.
+            Same inputs / outputs than
+        """
+        with torch.no_grad():
+            return self.forward(
+                x=x, mask=mask,
+                recycle=recycle, inter_recycle=inter_recycle
+            )
+
+
 class RGN2_Transformer(torch.nn.Module):
     def __init__(self, embedding_dim=1280, hidden=[512], mlp_hidden=[128, 4],
                  act="silu", x_transformer_config={
@@ -417,6 +540,8 @@ class RGN2_Transformer(torch.nn.Module):
         act_types = {
             "relu": torch.nn.ReLU,
             "silu": torch.nn.SiLU,
+            "aconc": AconC,
+            "relu_square": SqReLU,
         }
         # store params
         self.embedding_dim = embedding_dim
@@ -426,7 +551,7 @@ class RGN2_Transformer(torch.nn.Module):
         # declare layers
         """ Declares an XTransformer model.
             * No decoder, just predict embeddings
-            * project with a lst_mlp
+            * project with a last_mlp
 
         """
         self.to_latent = torch.nn.Linear(self.embedding_dim, self.hidden[0])
@@ -805,15 +930,20 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
             self.refiner = en_transformer.EnTransformer(**self.refiner_args)
 
         elif self.refiner_type == "IPA": 
-            raise NotImplementedError("IPA refinement not yet implemented")
-            self.refiner_args = {}
-            self.refiner = invariant_point_attention.InvariantPointAttention(**self.refiner_args) 
+            self.refiner_args = {
+                k:v for k,v in kwargs.items() \
+                    if k in set([
+                        "embedding_dim", "feats_out",
+                        "structure_module_depth", "predict_points",
+                    ])
+            }
+            self.refiner = RGN2_IPA(**self.refiner_args) 
 
     def forward(self, **data_dict):
         """ Corrects structure. """
         r_iters = []
         # ensure inputs
-        if  not "recycle" in data_dict.keys(): 
+        if not "recycle" in data_dict.keys(): 
             data_dict["recycle"] = 1
         if not "inter_recycle" in data_dict.keys(): 
             data_dict["inter_recycle"] = False
@@ -829,11 +959,17 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
                 data_dict["coors"] = coors
                 # data_dict["feats"] = pred_feats # commented for recycling
 
-                if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
-                    r_iters.append( coors.detach() )
-
             elif self.refiner_type == "IPA": 
-                raise NotImplementedError("IPA refinement not yet implemented")
+                input_ = {
+                    k:v for k,v in data_dict.items()  \
+                    if k in set(["x", "mask"])
+                }
+                pred_feats, coors = self.refiner.forward(**input_)
+                data_dict["coors"] = coors
+                # data_dict["feats"] = pred_feats # commented for recycling
+            
+            if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
+                r_iters.append( coors.detach() )
 
         return pred_feats, coors, r_iters
 
