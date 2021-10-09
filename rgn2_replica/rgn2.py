@@ -709,34 +709,13 @@ class RGN2_Naive(torch.nn.Module):
             Note: 4 last dims of input is dumb token for first res.
                   Use same as in `.forward()` method.
         """
-        # default mask is everything
-        if mask is None:
-            mask = torch.ones(x.shape[:-1], dtype=torch.bool, device=x.device)
-        # handles batch shape
-        squeeze = len(x.shape) == 2
-        if squeeze:
-            x = x.unsqueeze(dim=0)
-            mask = mask.unsqueeze(dim=0)
-
-        # no gradients needed for prediction
         with torch.no_grad():
-
-            r_policy = 1
-            for i in range(x.shape[-2]):
-                # only recycle (if set to) in last iter - saves time
-                if i < ( x.shape[-2] - 1 ):
-                    r_policy = recycle
-
-                input_step = x[mask[:, i], :i+1]        # (B, 0:i+1, 4)
-                preds, r_iters = self.forward(       # (B, 1:i+2, 4)
-                    input_step, recycle = r_policy, inter_recycle=inter_recycle
-                )
-                # only modify if it's not last iter. last angle is not needed
-                if i < ( x.shape[-2] - 1 ):
-                    x[mask[:, i], 1:i+2, -4:] = preds
-
-        # re-handles batch shape
-        return preds.squeeze() if squeeze else preds, r_iters
+            return self.forward(
+                x=x, 
+                mask=mask,
+                recycle=recycle, 
+                inter_recycle=inter_recycle
+            )
 
 
     def turn_to_angles(self, preds, angles=2):
