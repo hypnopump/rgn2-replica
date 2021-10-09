@@ -485,8 +485,10 @@ class RGN2_Transformer(torch.nn.Module):
         """
         with torch.no_grad():
             return self.forward(
-                x=x, mask=mask,
-                recycle=recycle, inter_recycle=inter_recycle
+                x=x, 
+                mask=mask,
+                recycle=recycle, 
+                inter_recycle=inter_recycle
             )
 
 
