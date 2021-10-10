@@ -746,7 +746,7 @@ class RGN2_Naive(torch.nn.Module):
             in the first pss (i=0)
         """
         return self.dropout_l(x) if i != 0 else \
-               torch.cat([self.dropout_l(x[..., :-d], x[..., -d:])], dim=-1)
+               torch.cat([self.dropout_l(x[..., :-d]), x[..., -d:]], dim=-1)
 
 
     def forward(self, x:torch.Tensor, mask: Optional[torch.Tensor] = None,
