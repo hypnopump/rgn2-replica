@@ -17,6 +17,8 @@ except Exception as e:
 # custom
 import mp_nerf
 from rgn2_replica.utils import *
+from rgn2_replica.rgn2_utils import *
+
 # refiners
 import en_transformer
 import invariant_point_attention

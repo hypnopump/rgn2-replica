@@ -55,6 +55,12 @@ def torch_default_dtype(dtype):
     torch.set_default_dtype(prev_dtype)
 
 
+def init_zero_(layer):
+    torch.nn.init.constant_(layer.weight, 0.)
+    if exists(layer.bias):
+        torch.nn.init.constant_(layer.bias, 0.)
+
+
 
 
 
