@@ -424,6 +424,7 @@ class RGN2_IPA(torch.nn.Module):
         """
         super(RGN2_IPA, self).__init__()
         # store params
+        self.embedding_dim = embedding_dim
         self.structure_module_depth = structure_module_depth
         self.predict_points = predict_points
         self.feats_out = feats_out
