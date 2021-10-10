@@ -548,8 +548,9 @@ def infer_from_seqs(seq_list, model, embedder,
         embedds, 
         torch.zeros_like(embedds[..., -4:])
     ], dim=-1)
-    # don't pass angles info - just 0 at start (sin=0, cos=1)
+    # don't pass angles info - just 0 at start (sin=0, cos=1) - pairs of (cos, sin)
     embedds[:, :, [0, 2]] = 1.
+
     # pred
     with torch.no_grad(): 
         preds, r_iters = model.forward(embedds, mask=None, recycle=recycle_func(None))  
@@ -558,7 +559,11 @@ def infer_from_seqs(seq_list, model, embedder,
     # POST-PROCESS
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
         points_preds, 
+<<<<<<< HEAD
         mask=mask,
+=======
+        mask=mask, # long_mask == True for all seq_len
+>>>>>>> 6809bbc... working prediction script.
         seq_list = seq_list, 
         model=model, 
         refine_args={
