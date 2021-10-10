@@ -131,10 +131,10 @@ def pred_post_process(points_preds: torch.Tensor,
         )
         # Add sidechain
         if seq_list is not None:
-            # solve backbone steric clashes
-            wrapper_pred[i, :lengths[i]] = mp_nerf.ml_utils.backbone_forcefield(
-                coords=wrapper_pred[i, :lengths[i]], coeffs=[3,5,3,1], lr=1e-2
-            )
+            # # solve backbone steric clashes
+            # wrapper_pred[i, :lengths[i]] = mp_nerf.ml_utils.backbone_forcefield(
+            #     coords=wrapper_pred[i, :lengths[i]], coeffs=[3,5,3,1], lr=1e-2
+            # )
             # build sidechains
             scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
             wrapper_pred[i, :lengths[i]], _ = mp_nerf.proteins.sidechain_fold(
