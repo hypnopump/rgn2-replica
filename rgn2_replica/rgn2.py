@@ -13,9 +13,10 @@ from einops import rearrange, repeat
 # custom
 from rgn2_replica import mp_nerf
 from rgn2_replica.utils import *
+# refiners
 import en_transformer
-from rgn2_replica.invariant_point_attention.invariant_point_attention import IPABlock
 from pytorch3d.transforms import quaternion_multiply, quaternion_to_matrix
+import invariant_point_attention
 
 
 #######################
@@ -116,7 +117,12 @@ def pred_post_process(points_preds: torch.Tensor,
         wrapper_pred[i, :lengths[i]] = mp_nerf.proteins.ca_bb_fold( 
             ca_trace_pred[i:i+1, :lengths[i], 1] 
         )
+        # Add sidechain
         if seq_list is not None:
+            # solve backbone steric clashes
+            wrapper_pred[i, :lengths[i]] = mp_nerf.ml_utils.backbone_forcefield(
+                coords=wrapper_pred[i, :lengths[i]], coeffs=[3,5,3,1], lr=1e-2
+            )
             # build sidechains
             scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
             wrapper_pred[i, :lengths[i]], _ = mp_nerf.proteins.sidechain_fold(
@@ -147,7 +153,7 @@ def rotations2angles(rotations: torch.Tensor):
             # cos(chi) = b_{i+1} * b_i
             points_preds[:, i+1, 1, 0] = \
                 torch.einsum('b i, b i -> b', rotations[:, i, :, 2], rotations[:, i+1, :, 2])
-            # sin(theta) = -b_{i+1} * n_i
+            # sin(chi) = -b_{i+1} * n_i
             points_preds[:, i+1, 1, 1] = \
                 -torch.einsum('b i, b i -> b', rotations[:, i, :, 1], rotations[:, i+1, :, 2])
 
@@ -219,6 +225,10 @@ def pred_post_process_ipa(coords_preds: torch.Tensor,
             ca_trace_pred[i:i+1, :lengths[i], 1]
         )
         if seq_list is not None:
+            # solve backbone steric clashes
+            wrapper_pred[i, :lengths[i]] = mp_nerf.ml_utils.backbone_forcefield(
+                coords=wrapper_pred[i, :lengths[i]], coeffs=[3, 5, 3, 1], lr=1e-2
+            )
             # build sidechains
             scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
             wrapper_pred[i, :lengths[i]], _ = mp_nerf.proteins.sidechain_fold(
@@ -719,6 +729,14 @@ class RGN2_Naive(torch.nn.Module):
             # torch.nn.init.constant_(module.lstm_cell.bias_hh[ shape//4 : shape//2 ], 1.)
 
 
+    def apply_dropout(self, x, i, d=4): 
+        """ Applies dropout but skips last 4 dims (encoding for torsions) 
+            in the first pss (i=0)
+        """
+        return self.dropout_l(x) if i != 0 else \
+               torch.cat([self.dropout_l(x[..., :-d], x[..., -d:])], dim=-1)
+
+
     def forward(self, x:torch.Tensor, mask: Optional[torch.Tensor] = None,
                      recycle:int = 1, inter_recycle:bool = False):
         """ Inputs:
@@ -748,7 +766,7 @@ class RGN2_Naive(torch.nn.Module):
 
             for k in range(self.num_layers):
                 x_f, (h_n, c_n) = self.stacked_lstm_f[k](
-                    self.dropout_l(x_pred) , mask=mask
+                    self.apply_dropout(x_pred, i=k, d=4), mask=mask
                 )
 
                 if self.bidirectional:
@@ -759,7 +777,7 @@ class RGN2_Naive(torch.nn.Module):
 
                     # back pass
                     x_b, (h_n_b, c_n_b) = self.stacked_lstm_b[k](
-                        self.dropout_l(x_b), mask=mask
+                        self.apply_dropout(x_b, i=k, d=4), mask=mask
                     )
                     # reverse again to match forward direction
                     for l, length in enumerate(seq_lens):
@@ -855,17 +873,6 @@ class RGN2_Naive(torch.nn.Module):
         in_model_out_of_dict = set(own_state.keys())
         in_dict_out_of_model = set([])
 
-        # solve naming with `_l0` and `_l`
-        # adding = {}
-        # for name, param in state_dict.items():
-        #     if name.endswith("_l0"):
-        #         adding[name[:-1]] = param
-        #     elif name.endswith("_l"): 
-        #         adding[name+"0"] = param
-
-        # for k, v in adding.items(): 
-        #     state_dict[k] = v
-
         # iterate and assign
         for name, param in state_dict.items():
             if name not in own_state:
@@ -890,6 +897,7 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
 
         Input example:  (uses https://github.com/hypnopump/en-transformer)
         refiner = RGN2_Refiner_Wrapper({
+            'refiner_type': 'En',
             'refiner_detach': true, # false
             'dim': 32,
             'depth': 4,
@@ -919,33 +927,50 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
             self.__dict__["refiner_detach"] = False
 
         # create dict of acceptable inputs
-        self.refiner_args = {
-            k:v for k,v in kwargs.items() \
-            if k in set([
-                "dim", "depth", "num_tokens", "rel_pos_emb", "dim_head",
-                "heads", "num_edge_tokens", "edge_dim", "coors_hidden_dim",
-                "neighbors", "only_sparse_neighbors", "num_adj_degrees",
-                "adj_dim", "valid_neighbor_radius", "init_eps", "norm_rel_coors",
-                "norm_coors_scale_init", "use_cross_product", "talking_heads",
-                "checkpoint", "rotary_theta", "rel_dist_cutoff", "rel_dist_scale",
-            ])
-        }
-        self.refiner = en_transformer.EnTransformer(**self.refiner_args)
+        if self.refiner_type == "En": 
+            self.refiner_args = {
+                k:v for k,v in kwargs.items() \
+                if k in set([
+                    "dim", "depth", "num_tokens", "rel_pos_emb", "dim_head",
+                    "heads", "num_edge_tokens", "edge_dim", "coors_hidden_dim",
+                    "neighbors", "only_sparse_neighbors", "num_adj_degrees",
+                    "adj_dim", "valid_neighbor_radius", "init_eps", "norm_rel_coors",
+                    "norm_coors_scale_init", "use_cross_product", "talking_heads",
+                    "checkpoint", "rotary_theta", "rel_dist_cutoff", "rel_dist_scale",
+                ])
+            }
+            self.refiner = en_transformer.EnTransformer(**self.refiner_args)
+
+        elif self.refiner_type == "IPA": 
+            raise NotImplementedError("IPA refinement not yet implemented")
+            self.refiner_args = {}
+            self.refiner = invariant_point_attention.InvariantPointAttention(**self.refiner_args) 
 
     def forward(self, **data_dict):
         """ Corrects structure. """
         r_iters = []
-        for i in range(max(1, data_dict["recycle"])):
-            input_ = {
-                k:v for k,v in data_dict.items()  \
-                if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
-            }
-            pred_feats, coors = self.refiner.forward(**input_)
-            data_dict["coors"] = coors
-            # data_dict["feats"] = pred_feats # commented for recycling
+        # ensure inputs
+        if  not "recycle" in data_dict.keys(): 
+            data_dict["recycle"] = 1
+        if not "inter_recycle" in data_dict.keys(): 
+            data_dict["inter_recycle"] = False
 
-            if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
-                r_iters.append( coors.detach() )
+        for i in range(max(1, data_dict["recycle"])):
+
+            if self.refiner_type == "En": 
+                input_ = {
+                    k:v for k,v in data_dict.items()  \
+                    if k in set(["feats", "coors", "edges", "mask", "adj_mat"])
+                }
+                pred_feats, coors = self.refiner.forward(**input_)
+                data_dict["coors"] = coors
+                # data_dict["feats"] = pred_feats # commented for recycling
+
+                if i != data_dict["recycle"]-1 and data_dict["inter_recycle"]:
+                    r_iters.append( coors.detach() )
+
+            elif self.refiner_type == "IPA": 
+                raise NotImplementedError("IPA refinement not yet implemented")
 
         return pred_feats, coors, r_iters
 
@@ -1007,7 +1032,7 @@ class RGN2_IPA(torch.nn.Module):
         IPA stuff
         """
         with torch_default_dtype(torch.float32):
-            self.ipa_block = IPABlock(
+            self.ipa_block = invariant_point_attention.IPABlock(
                 dim=self.embedding_dim,
                 heads=4, #structure_module_heads,
                 require_pairwise_repr=False

@@ -105,41 +105,44 @@ def batched_inference(*args, model, embedder,
     if config is not None: 
         if random.random() < config.frac_true_torsions: 
             angles_label_input = rearrange(points_label, "... c d -> ... (c d)")
-            embedds[..., angles_label_input.shape[-1]:] = angles_label_input
+            embedds[..., -angles_label_input.shape[-1]:] = angles_label_input
     
     # PREDICT
     if mode in ["train", "test", "fast_test"]: 
         # get angles
-        # todo: make it compatible with lstm and transformer
-        # preds, r_iters = model.forward(embedds, mask=long_mask,
-        #                                recycle=recycle_func(None))      # (B, L, 4)
-        preds, r_iters, rotations, translations = model.forward(embedds, mask=long_mask,
-                                       recycle=recycle_func(None))  #  (B, L, 4)
-    if preds.shape[-1] == 4:  # original LSTM or transformer result
-        points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
+        refiner_type = config.refiner_args["refiner_type"]
+        if refiner_type == "En":
+            preds, r_iters = model.forward(embedds, mask=long_mask,
+                                           recycle=recycle_func(None))      # (B, L, 4)
 
-        # POST-PROCESS
-        points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-            points_preds, mask=long_mask, # long_mask == True for all seq_len
-            # seq_list = None, # don't fold sidechain
-            model=model, refine_args={
-                "embedds": embedds,
-                "int_seq": int_seq.to(device),
-                "recycle": recycle_func(None),
-                "inter_recycle": False,
-            }
-        )
-    else:  # IPA returns coords
-        points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process_ipa(
-            preds, rotations, mask=long_mask,  # long_mask == True for all seq_len
-            # seq_list = None, # don't fold sidechain
-            model=model, refine_args={
-                "embedds": embedds,
-                "int_seq": int_seq.to(device),
-                "recycle": recycle_func(None),
-                "inter_recycle": False,
-            }
-        )
+            points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
+
+            # POST-PROCESS
+            points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
+                points_preds, mask=long_mask, # long_mask == True for all seq_len
+                # seq_list = None, # don't fold sidechain
+                model=model, refine_args={
+                    "embedds": embedds,
+                    "int_seq": int_seq.to(device),
+                    "recycle": recycle_func(None),
+                    "inter_recycle": False,
+                }
+            )
+        elif refiner_type == "IPA":  # IPA returns coords
+            preds, r_iters, rotations, translations = model.forward(embedds, mask=long_mask,
+                                                                    recycle=recycle_func(None))  #  (B, L, 4)
+            points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process_ipa(
+                preds, rotations, mask=long_mask,  # long_mask == True for all seq_len
+                # seq_list = None, # don't fold sidechain
+                model=model, refine_args={
+                    "embedds": embedds,
+                    "int_seq": int_seq.to(device),
+                    "recycle": recycle_func(None),
+                    "inter_recycle": False,
+                }
+            )
+        else:
+            raise NotImplementedError("refiner types besides En/IPA are not supported.")
 
     # get frames (for labels) for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
@@ -420,6 +423,11 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
     model = model.train()
     device = next(model.parameters()).device
 
+    # change to eval() if output is going to be detached
+    if model is not None:
+        if model.refiner is not None:
+            model = model.eval()
+
     metrics_list = []
     b = 0
     tic = time.time()
@@ -473,8 +481,12 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
             log_dict["loss"] = loss_item.item()
             log_dict.update({k:v.mean().item() for k,v in metrics.items() if "wrap" not in k})
             metrics_list.append( log_dict )
+            
             if wandbai and WANDB:
                 wandb.log(metrics_list[-1])
+
+            if log_every == 1: 
+                print({"seq": infer["seq"], "loss": log_dict["loss"]})
 
             
         # clip gradients - p.44 AF2 methods section
@@ -557,7 +569,7 @@ def infer_from_seqs(seq_list, model, embedder,
     
     # POST-PROCESS
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-        points_preds, seq_list=seq_list, mask=mask
+        points_preds, seq_list=seq_list, mask=mask, model=model
     )
 
     return {
