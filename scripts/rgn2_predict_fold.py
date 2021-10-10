@@ -59,6 +59,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", help="Random seed", default=101)
 
     args = parser.parse_args()
+    args.recycle = int(args.num_recycles_pred)
     args.bidirectional = bool(args.bidirectional)
     args.angularize = bool(args.angularize)
     args.refiner_args = dict(args.refiner_args)
