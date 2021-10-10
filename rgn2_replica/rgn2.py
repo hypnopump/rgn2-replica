@@ -483,11 +483,9 @@ class RGN2_IPA(torch.nn.Module):
                 quaternions = repeat(quaternions, 'd -> b n d', b=b, n=n)
             else: 
                 quaternions = matrix_to_quaternion(rotations)
-                
+
             if translations is None: 
                 translations = torch.zeros((b, n, 3), device=device)
-
-            print(rotations.shape, translations.shape)
 
             # go through the layers and apply invariant point attention and feedforward
 
