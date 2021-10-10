@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from x_transformers import XTransformer, Encoder
 from einops import rearrange, repeat
 try: 
-    from pytorch3d.transforms import quaternion_multiply, quaternion_to_matrix
+    from pytorch3d.transforms import quaternion_multiply, quaternion_to_matrix, matrix_to_quaternion
 except Exception as e: 
     print("PyTorch3D  not installed. Continuing")
 # custom
@@ -111,17 +111,26 @@ def pred_post_process(points_preds: torch.Tensor,
                     )
                 # IPA-transformer as refiner
                 elif model.refiner.refiner_type == "IPA": 
+                    # rotation from origin to frame
+                    rotations = rearrange(torch.eye(3), 'di dj -> () dj di').to(frames_preds) @ frames_preds
+                    coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
+                    if model.refiner.refiner_detach: 
+                        rotations, coors = rotations.detach(), coors.detach()
+
                     feats, coors, r_iters = model.refiner(
                         x=feats, 
                         # mask would be supported for batch.
                         mask=None, # use for batch dim?
+                        rotations=rotations, 
+                        translations=coors / 10, # convert to Nanometers
                         # recycling has no effect since no way of inputs. 
                         recycle= 1, # refine_args["recycle"],
                         inter_recycle=refine_args["inter_recycle"],
                     )
+                    coors = coors*10 # revert to Angstroms
 
                 ca_trace_pred[i:i+1, :lengths[i], 1] = \
-                    ca_trace_pred[i:i+1, :lengths[i], 1] * 0. + coors
+                    ca_trace_pred[i:i+1, :lengths[i], 1] * 0. + coors * 10 
 
     # calc BB - can't do batched bc relies on extremes.
     wrapper_pred = torch.zeros_like(ca_trace_pred)
@@ -418,6 +427,9 @@ class RGN2_IPA(torch.nn.Module):
                        structure_module_depth=8, predict_points=False
         ):
         """ IPA-based refiner as a drop-in for En-Transformer after LSTM/Transformer.
+
+            Important! Coordinates are in Nanometers in both input and output.
+            
             Inputs:
             * embedding_dim: int. input dimension. 
             * feats_out: int. dims to project out feats. identity if 0.
@@ -451,8 +463,13 @@ class RGN2_IPA(torch.nn.Module):
                         torch.nn.Linear(self.embedding_dim, self.feats_out)
                         
 
-    def forward(self, x, mask : Optional[torch.Tensor] = None,):
-        """ Inputs:
+    def forward(self, x, 
+        mask : Optional[torch.Tensor] = None, 
+        rotations : Optional[torch.Tensor] = None, 
+        translations : Optional[torch.Tensor] = None, 
+        ):
+        """ Important! Coordinates are in Nanometers in both input and output.
+            Inputs:
             * x (B, L, Emb_dim)
             Outputs: (B, L, 4).
         """
@@ -460,9 +477,14 @@ class RGN2_IPA(torch.nn.Module):
         b, n, device = *x.shape[:2], x.device
 
         with torch_default_dtype(torch.float32):
-            quaternions = torch.tensor([1., 0., 0., 0.], device=device)
-            quaternions = repeat(quaternions, 'd -> b n d', b=b, n=n)
-            translations = torch.zeros((b, n, 3), device=device)
+            # allow input of coords
+            if rotations is None:
+                quaternions = torch.tensor([1., 0., 0., 0.], device=device)
+                quaternions = repeat(quaternions, 'd -> b n d', b=b, n=n)
+            else: 
+                quaternions = matrix_to_quaternion(rotations)
+            if translations is None: 
+                translations = torch.zeros((b, n, 3), device=device)
 
             # go through the layers and apply invariant point attention and feedforward
 
@@ -964,9 +986,10 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
                 # data_dict["feats"] = pred_feats # commented for recycling
 
             elif self.refiner_type == "IPA": 
+                # IPA DOES NOT NEED RECYCLING SINCE WEIGHTS ARE SHARED.
                 input_ = {
                     k:v for k,v in data_dict.items()  \
-                    if k in set(["x", "mask"])
+                    if k in set(["x", "mask", "rotations", "translations"])
                 }
                 pred_feats, coors = self.refiner.forward(**input_)
                 data_dict["coors"] = coors
