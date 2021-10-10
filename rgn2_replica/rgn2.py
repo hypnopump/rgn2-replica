@@ -100,7 +100,7 @@ def pred_post_process(points_preds: torch.Tensor,
                         np.eye(lengths[i], k=1) + np.eye(lengths[i], k=1).T
                     ).bool().to(device).unsqueeze(0)
 
-                    coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
+                    coors = ca_trace_pred[i:i+1, :lengths[i], 1].clone()
                     coors = coors.detach() if model.refiner.refiner_detach else coors
                     feats, coors, r_iters = model.refiner(
                         feats=feats, # embeddings
@@ -113,7 +113,7 @@ def pred_post_process(points_preds: torch.Tensor,
                 elif model.refiner.refiner_type == "IPA": 
                     # rotation and translation from origin to frame
                     rotations = rearrange(torch.eye(3), 'di dj -> () dj di').to(frames_preds) @ frames_preds[i:i+1, :lengths[i]]
-                    coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
+                    coors = ca_trace_pred[i:i+1, :lengths[i], 1].clone()
                     if model.refiner.refiner_detach: 
                         rotations, coors = rotations.detach(), coors.detach()
 
@@ -483,6 +483,7 @@ class RGN2_IPA(torch.nn.Module):
                 quaternions = repeat(quaternions, 'd -> b n d', b=b, n=n)
             else: 
                 quaternions = matrix_to_quaternion(rotations)
+                
             if translations is None: 
                 translations = torch.zeros((b, n, 3), device=device)
 
