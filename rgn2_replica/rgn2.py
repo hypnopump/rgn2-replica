@@ -115,7 +115,8 @@ def pred_post_process(points_preds: torch.Tensor,
                         x=feats, 
                         # mask would be supported for batch.
                         mask=None, # use for batch dim?
-                        recycle=refine_args["recycle"],
+                        # recycling has no effect since no way of inputs. 
+                        recycle= 1, # refine_args["recycle"],
                         inter_recycle=refine_args["inter_recycle"],
                     )
 
