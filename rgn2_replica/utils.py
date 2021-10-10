@@ -3,6 +3,7 @@ import random
 import math
 import torch
 import numpy as np
+import contextlib
 
 
 # random hacks - device utils for pyTorch - saves transfers
@@ -44,6 +45,14 @@ def set_seed(seed, verbose=False):
     
     if verbose: 
         print("Seet seed to {0}".format(seed))
+
+
+@contextlib.contextmanager
+def torch_default_dtype(dtype):
+    prev_dtype = torch.get_default_dtype()
+    torch.set_default_dtype(dtype)
+    yield
+    torch.set_default_dtype(prev_dtype)
 
 
 
