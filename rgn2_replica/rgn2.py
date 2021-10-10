@@ -112,7 +112,7 @@ def pred_post_process(points_preds: torch.Tensor,
                 # IPA-transformer as refiner
                 elif model.refiner.refiner_type == "IPA": 
                     # rotation and translation from origin to frame
-                    rotations = rearrange(torch.eye(3), 'di dj -> () dj di').to(frames_preds) @ frames_preds
+                    rotations = rearrange(torch.eye(3), 'di dj -> () dj di').to(frames_preds) @ frames_preds[i, :lengths[i]]
                     coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
                     if model.refiner.refiner_detach: 
                         rotations, coors = rotations.detach(), coors.detach()
