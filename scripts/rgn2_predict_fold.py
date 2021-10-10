@@ -1,17 +1,16 @@
 # Author: Eirc Alcaide (@hypnopump)
+<<<<<<< HEAD
+=======
 import os
 import re
 import json
 import numpy as np 
 import torch
+>>>>>>> 9c60d1ddc49a5b9dd73937ad6f0c9e21f8bf8867
 # process
 import argparse
-import joblib
-from tqdm import tqdm
 # custom
-import esm
 import sidechainnet
-import mp_nerf
 from rgn2_replica import *
 from rgn2_replica.embedders import *
 from rgn2_replica.rgn2_refine import *
@@ -118,7 +117,6 @@ if __name__ == "__main__":
     # refine structs
     if args.rosetta_refine: 
         from typing import Optional
-        import pyrosetta
 
         for i, seq in enumerate(seq_list): 
             # only refine

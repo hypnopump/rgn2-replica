@@ -22,14 +22,16 @@ setup(
     'sidechainnet',
     'proDy',
     'tqdm',
-    'mp-nerf',
+    # 'mp-nerf',
     'en-transformer>=0.5.0',
     'datasets>=1.10',
     'transformers>=4.2',
     'x-transformers>=0.16.1',
     'pytorch-lightning>=1.4',
     'wandb',
-    'fair-esm>=0.4.0'
+    'fair-esm>=0.4.0',
+    'pytorch3d',
+    'invariant_point_attention'
   ],
   setup_requires=[
     'pytest-runner',

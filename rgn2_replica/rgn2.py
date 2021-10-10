@@ -1,4 +1,4 @@
-# Author: Eric Alcaide ( @hypnopump )
+# Author: Eric Alcaide ( @hypnopump ) 
 import os
 import sys
 from typing import Optional, Tuple, List
@@ -11,16 +11,26 @@ import torch.nn.functional as F
 from x_transformers import XTransformer, Encoder
 from einops import rearrange, repeat
 # custom
-import mp_nerf
+from rgn2_replica import mp_nerf
 from rgn2_replica.utils import *
 # refiners
 import en_transformer
+from pytorch3d.transforms import quaternion_multiply, quaternion_to_matrix
 import invariant_point_attention
 
 
 #######################
 #### USEFUL PIECES ####
 #######################
+
+def exists(val):
+    return val is not None
+
+
+def init_zero_(layer):
+    torch.nn.init.constant_(layer.weight, 0.)
+    if exists(layer.bias):
+        torch.nn.init.constant_(layer.bias, 0.)
 
 @torch.jit.script
 def prediction_wrapper(x: torch.Tensor, pred: torch.Tensor):
@@ -112,6 +122,112 @@ def pred_post_process(points_preds: torch.Tensor,
             # solve backbone steric clashes
             wrapper_pred[i, :lengths[i]] = mp_nerf.ml_utils.backbone_forcefield(
                 coords=wrapper_pred[i, :lengths[i]], coeffs=[3,5,3,1], lr=1e-2
+            )
+            # build sidechains
+            scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
+            wrapper_pred[i, :lengths[i]], _ = mp_nerf.proteins.sidechain_fold(
+                wrapper_pred[i, :lengths[i]], **scaffolds, c_beta="backbone"
+            )
+
+    return points_preds, ca_trace_pred, frames_preds, wrapper_pred
+
+
+def rotations2angles(rotations: torch.Tensor):
+    # ref to eq.20 in paper: https://arxiv.org/pdf/1102.5658.pdf
+    # input: (B, L, 3, 3) = (B, L, [t, n, b])
+    length = rotations.shape[1]
+    points_preds = torch.zeros(*rotations.shape[:-2], 2, 2, device=rotations.device)
+    points_preds[:, 0, [0, 1], 0] = 1.
+    points_preds[:, 0, [0, 1], 1] = 0.
+    points_preds[:, 1, 1, 0] = 1.
+    points_preds[:, 1, 1, 1] = 0.
+
+    for i in range(length - 1):
+        # cos(theta) = t_{i+1} * t_i
+        points_preds[:, i+1, 0, 0] = \
+            torch.einsum('b i, b i -> b', rotations[:, i, :, 0], rotations[:, i+1, :, 0])
+        # sin(theta) = -n_{i+1} * t_i
+        points_preds[:, i+1, 0, 1] = \
+            -torch.einsum('b i, b i -> b', rotations[:, i, :, 0], rotations[:, i+1, :, 1])
+        if i > 0:
+            # cos(chi) = b_{i+1} * b_i
+            points_preds[:, i+1, 1, 0] = \
+                torch.einsum('b i, b i -> b', rotations[:, i, :, 2], rotations[:, i+1, :, 2])
+            # sin(chi) = -b_{i+1} * n_i
+            points_preds[:, i+1, 1, 1] = \
+                -torch.einsum('b i, b i -> b', rotations[:, i, :, 1], rotations[:, i+1, :, 2])
+
+    return points_preds
+
+
+def pred_post_process_ipa(coords_preds: torch.Tensor,
+                          rotations: torch.Tensor,
+                          seq_list: Optional[List] = None,
+                          mask: Optional[torch.Tensor] = None,
+                          model = None,
+                          refine_args = {}):
+    """ Converts an angle-based output to structures.
+        Inputs:
+        * coords_preds: (B, L, 3)
+        * seq_list: (B,) list of str. FASTA sequences. Optional. build scns
+        * mask: (B, L) bool tensor.
+        * model: subclass of torch.nn.Module. prediction model w/ potential refiner
+        * model_args: dict. arguments to pass to model for refinement
+        Outputs:
+        * points_preds: (B, L, 2, 2)
+        * ca_trace_pred: (B, L, 14, 3)
+        * frames_preds: (B, L, 3, 3)
+        * wrapper_pred: (B, L, 14, 3)
+    """
+    device = coords_preds.device
+    if mask is None:
+        mask = torch.ones(coords_preds.shape[:-2], dtype=torch.bool)
+    lengths = mask.sum(dim=-1).cpu().detach().tolist()
+
+    frames_preds = rotations  # simply forward it
+
+    # restate first values to known ones (1st angle, 1s + 2nd dihedral)
+    points_preds = rotations2angles(rotations)
+
+    # rebuild ca trace with angles - norm vectors to ensure mod=1. - (B, L, 14, 3)
+    ca_trace_pred = torch.zeros(*coords_preds.shape[:2], 14, 3, device=device)
+    ca_trace_pred[:, :, 1] = coords_preds
+    # delete extra part and chirally reflect
+    ca_trace_pred_aux = torch.zeros_like(ca_trace_pred)
+    for i in range(coords_preds.shape[0]):
+        ca_trace_pred_aux[i, :lengths[i]] = ca_trace_pred_aux[i, :lengths[i]] + \
+                                            mp_nerf.utils.ensure_chirality(ca_trace_pred[i:i+1, :lengths[i]])
+    ca_trace_pred = ca_trace_pred_aux
+
+    # use model's refiner if available
+    if model is not None:
+        if model.refiner is not None:
+            for i in range(mask.shape[0]):
+                adj_mat = torch.from_numpy(
+                    np.eye(lengths[i], k=1) + np.eye(lengths[i], k=1).T
+                ).bool().to(device).unsqueeze(0)
+
+                coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
+                coors = coors.detach() if model.refiner.refiner_detach else coors
+                feats, coors, r_iters = model.refiner(
+                    feats=refine_args[model.refiner.feats_inputs][i:i+1, :lengths[i]], # embeddings
+                    coors=coors,
+                    adj_mat=adj_mat,
+                    recycle=refine_args["recycle"],
+                    inter_recycle=refine_args["inter_recycle"],
+                )
+                ca_trace_pred[i:i+1, :lengths[i], 1] = coors
+
+    # calc BB - can't do batched bc relies on extremes.
+    wrapper_pred = torch.zeros_like(ca_trace_pred)
+    for i in range(coords_preds.shape[0]):
+        wrapper_pred[i, :lengths[i]] = mp_nerf.proteins.ca_bb_fold(
+            ca_trace_pred[i:i+1, :lengths[i], 1]
+        )
+        if seq_list is not None:
+            # solve backbone steric clashes
+            wrapper_pred[i, :lengths[i]] = mp_nerf.ml_utils.backbone_forcefield(
+                coords=wrapper_pred[i, :lengths[i]], coeffs=[3, 5, 3, 1], lr=1e-2
             )
             # build sidechains
             scaffolds = mp_nerf.proteins.build_scaffolds_from_scn_angles(seq=seq_list[i], device=device)
@@ -440,6 +556,8 @@ class RGN2_Transformer(torch.nn.Module):
             act_types[act](),
             torch.nn.Linear(self.mlp_hidden[0], self.mlp_hidden[-1])
         )
+
+        self.refiner = None # to be implemented
 
 
     def forward(self, x, mask : Optional[torch.Tensor] = None,
@@ -857,4 +975,150 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
         return pred_feats, coors, r_iters
 
 
+
+class RGN2_IPA(torch.nn.Module):
+    def __init__(self, embedding_dim=1280, hidden=[512], mlp_hidden=[128, 4],
+                 act="silu", structure_module_depth=8, predict_points=False, x_transformer_config={
+                    "depth": 8,
+                    "heads": 4,
+                    "attn_dim_head": 64,
+                    # "attn_num_mem_kv": 16, # 16 memory key / values
+                    "use_scalenorm": True, # set to true to use for all layers
+                    "ff_glu": True, # set to true to use for all feedforwards
+                    "attn_collab_heads": True,
+                    "attn_collab_compression": .3,
+                    "cross_attend": False,
+                    "gate_values": True,  # gate aggregated values with the input"
+                    # "sandwich_coef": 6,  # interleave attention and feedforwards with sandwich coefficient of 6
+                    "rotary_pos_emb": True  # turns on rotary positional embeddings"
+                 }
+        ):
+        """ Transformer drop-in for RGN2-LSTM.
+            Inputs:
+            * layers: int. number of rnn layers
+            * mlp_hidden: list of ints.
+        """
+        super(RGN2_IPA, self).__init__()
+        act_types = {
+            "relu": torch.nn.ReLU,
+            "silu": torch.nn.SiLU,
+        }
+        # store params
+        self.embedding_dim = embedding_dim
+        self.hidden = hidden
+        self.mlp_hidden = mlp_hidden
+        self.structure_module_depth = structure_module_depth
+        self.predict_points = predict_points
+
+        # declare layers
+        """ Declares an XTransformer model.
+            * No decoder, just predict embeddings
+            * project with a lst_mlp
+
+        """
+        self.to_latent = torch.nn.Linear(self.embedding_dim, self.hidden[0])
+        self.transformer = Encoder(
+            dim= self.hidden[-1],
+
+            **x_transformer_config
+        )
+        self.last_mlp = torch.nn.Sequential(
+            torch.nn.Linear(self.hidden[-1], self.mlp_hidden[0]),
+            act_types[act](),
+            torch.nn.Linear(self.mlp_hidden[0], self.mlp_hidden[-1])
+        )
+
+        """
+        IPA stuff
+        """
+        with torch_default_dtype(torch.float32):
+            self.ipa_block = invariant_point_attention.IPABlock(
+                dim=self.embedding_dim,
+                heads=4, #structure_module_heads,
+                require_pairwise_repr=False
+            )
+
+            self.to_quaternion_update = torch.nn.Linear(self.embedding_dim, 6)
+
+        init_zero_(self.ipa_block.attn.to_out)
+
+        self.to_points = torch.nn.Linear(self.embedding_dim, 3)
+
+
+        self.refiner = None # to be implemented
+
+
+    def forward(self, x, mask : Optional[torch.Tensor] = None,
+                     recycle:int = 1, inter_recycle:bool = False):
+        """ Inputs:
+            * x (B, L, Emb_dim)
+            Outputs: (B, L, 4).
+
+        """
+        # same input for both rgn2-lstm and transformer, so mask angles
+        r_iters = []  # todo: implement this
+        x_buffer = x.clone() if recycle > 1 else x   # buffer for recycling
+        x[..., -4:] = 0.
+
+        b, n, device = *x.shape[:2], x.device
+
+        with torch_default_dtype(torch.float32):
+            quaternions = torch.tensor([1., 0., 0., 0.], device=device)
+            quaternions = repeat(quaternions, 'd -> b n d', b=b, n=n)
+            translations = torch.zeros((b, n, 3), device=device)
+
+            # go through the layers and apply invariant point attention and feedforward
+
+            for i in range(self.structure_module_depth):
+                is_last = i == (self.structure_module_depth - 1)
+
+                # the detach comes from
+                # https://github.com/deepmind/alphafold/blob/0bab1bf84d9d887aba5cfb6d09af1e8c3ecbc408/alphafold/model/folding.py#L383
+                rotations = quaternion_to_matrix(quaternions)
+
+                if not is_last:
+                    rotations = rotations.detach()
+
+                x = self.ipa_block(
+                    x,
+                    mask=mask,
+                    # pairwise_repr=pairwise_repr,
+                    rotations=rotations,
+                    translations=translations
+                )
+
+                # update quaternion and translation
+
+                quaternion_update, translation_update = self.to_quaternion_update(x).chunk(2, dim=-1)
+                quaternion_update = F.pad(quaternion_update, (1, 0), value=1.)
+
+                quaternions = quaternion_multiply(quaternions, quaternion_update)
+                translations = translations + torch.einsum('b n c, b n c r -> b n r', translation_update, rotations)
+
+            points_local = self.to_points(x)
+            rotations = quaternion_to_matrix(quaternions)
+            x_pred = torch.einsum('b n c, b n c d -> b n d', points_local, rotations) + translations
+
+        x_pred = x_pred.type(x.dtype).to(x.device)
+        # todo: support the inter_recycle option
+        r_iters = \
+            torch.empty(x.shape[0], recycle - 1, device=x.device)  # (B, recycle-1, L, 4)
+
+        if not self.predict_points:
+            # todo:
+            return x_pred, r_iters, rotations, translations
+
+        return x_pred, r_iters
+
+
+    def predict_fold(self, x, mask : Optional[torch.Tensor] = None,
+                          recycle:int = 1, inter_recycle:bool = False):
+        """ Predicts all angles at once so no need for AR prediction.
+            Same inputs / outputs than
+        """
+        with torch.no_grad():
+            return self.forward(
+                x=x, mask=mask,
+                recycle=recycle, inter_recycle=inter_recycle
+            )
 

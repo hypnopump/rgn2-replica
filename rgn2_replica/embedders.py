@@ -31,8 +31,8 @@ class ClaspEmbedder(torch.nn.Module):
                       torch.Tensor (B, L) according to MP-NeRF encoding
         """
         # format
-        if isinstance(aa_seqs, torch.Tensor): 
-            aa_seq = ids_to_embed_input(to_cpu(aa_seqs).tolist())
+        if isinstance(aa_seq, torch.Tensor):
+            aa_seq = ids_to_embed_input(to_cpu(aa_seq).tolist())
 
         with torch.no_grad():
             tokenized_seq = self.tokenizer(aa_seq, context_length=len(aa_seq), return_mask=False)

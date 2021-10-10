@@ -2,14 +2,7 @@
 
 import time
 import gc
-import random 
-import numpy as np
 
-import torch
-from einops import rearrange, repeat
-from functools import partial
-
-import mp_nerf
 from rgn2_replica.rgn2 import *
 from rgn2_replica.utils import *
 from rgn2_replica.rgn2_utils import *
@@ -47,7 +40,7 @@ def batched_inference(*args, model, embedder,
     # create scaffolds
     int_seq = torch.ones(batch_dim, max_seq_len, dtype=torch.long) * 20 # padding tok
     # mask is true mask. long mask is for lstm
-    mask, long_mask = torch.zeros(2, *int_seq.shape, dtype=torch.bool)
+    mask, long_mask = torch.zeros(2, *int_seq.shape, dtype=torch.bool, device=device)
     true_coords = torch.zeros(int_seq.shape[0], int_seq.shape[1]*14, 3, device=device)
     # fill scaffolds
     for i,arg in enumerate(args): 
@@ -59,14 +52,14 @@ def batched_inference(*args, model, embedder,
     mask = mask.bool().to(device)
     coords = rearrange(true_coords, 'b (l c) d -> b l c d', c=14)
     ca_trace = coords[..., 1, :]
-    coords_rebuilt = mp_nerf.proteins.ca_bb_fold( ca_trace ) # beware extremes
+    # coords_rebuilt = mp_nerf.proteins.ca_bb_fold( ca_trace ) # beware extremes
 
     # calc angle labels
     angles_label_ = torch.zeros(*ca_trace.shape[:-1], 2, dtype=torch.float, device=device)
     angles_mask_ = torch.zeros_like(angles_label_).bool() # propagate mask to angles w/ missing points
     for i, arg in enumerate(args): 
         length = arg[1].shape[-1]
-        angles_label_[i, 1:length-1, 0] = mp_nerf.utils.get_cosine_angle( 
+        angles_label_[i, 1:length-1, 0] = mp_nerf.utils.get_cosine_angle(
             ca_trace[i, :length-2 , :], 
             ca_trace[i, 1:length-1, :],
             ca_trace[i, 2:length  , :],
@@ -87,6 +80,7 @@ def batched_inference(*args, model, embedder,
     # later don't count them 
     # angles_label_[~angles_mask_] = 0.
     angles_label_[angles_label_ != angles_label_] = 0.
+    print(angles_label_.shape)
     points_label = mp_nerf.ml_utils.angle_to_point_in_circum(angles_label_) # (B, L, 2, 2)
 
     # include angles of previous AA as input
@@ -116,21 +110,39 @@ def batched_inference(*args, model, embedder,
     # PREDICT
     if mode in ["train", "test", "fast_test"]: 
         # get angles
-        preds, r_iters = model.forward(embedds, mask=long_mask,
-                                       recycle=recycle_func(None))      # (B, L, 4)
-    points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
-    
-    # POST-PROCESS
-    points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-        points_preds, mask=long_mask, # long_mask == True for all seq_len
-        # seq_list = None, # don't fold sidechain
-        model=model, refine_args={
-            "embedds": embedds, 
-            "int_seq": int_seq.to(device), 
-            "recycle": recycle_func(None),
-            "inter_recycle": False,
-        }
-    )
+        refiner_type = config.refiner_args["refiner_type"]
+        if refiner_type == "En":
+            preds, r_iters = model.forward(embedds, mask=long_mask,
+                                           recycle=recycle_func(None))      # (B, L, 4)
+
+            points_preds = rearrange(preds, '... (a d) -> ... a d', a=2)       # (B, L, 2, 2)
+
+            # POST-PROCESS
+            points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
+                points_preds, mask=long_mask, # long_mask == True for all seq_len
+                # seq_list = None, # don't fold sidechain
+                model=model, refine_args={
+                    "embedds": embedds,
+                    "int_seq": int_seq.to(device),
+                    "recycle": recycle_func(None),
+                    "inter_recycle": False,
+                }
+            )
+        elif refiner_type == "IPA":  # IPA returns coords
+            preds, r_iters, rotations, translations = model.forward(embedds, mask=long_mask,
+                                                                    recycle=recycle_func(None))  #  (B, L, 4)
+            points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process_ipa(
+                preds, rotations, mask=long_mask,  # long_mask == True for all seq_len
+                # seq_list = None, # don't fold sidechain
+                model=model, refine_args={
+                    "embedds": embedds,
+                    "int_seq": int_seq.to(device),
+                    "recycle": recycle_func(None),
+                    "inter_recycle": False,
+                }
+            )
+        else:
+            raise NotImplementedError("refiner types besides En/IPA are not supported.")
 
     # get frames (for labels) for for later fape
     bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
@@ -188,7 +200,7 @@ def inference(*args, model, embedder,
     long_mask = torch.ones_like(mask)
     coords = rearrange(true_coords, '(l c) d -> () l c d', c=14).to(device)
     ca_trace = coords[..., 1, :]
-    coords_rebuilt = mp_nerf.proteins.ca_bb_fold( ca_trace ) 
+    coords_rebuilt = mp_nerf.proteins.ca_bb_fold(ca_trace)
     # mask for thetas and chis
     angles_label_ = torch.zeros(*ca_trace.shape[:-1], 2, dtype=torch.float, device=device)
     angles_mask_ = torch.zeros_like(angles_label_).bool()
@@ -203,12 +215,12 @@ def inference(*args, model, embedder,
         ca_trace[..., 2:-1, :],
         ca_trace[..., 3:  , :],
     ) 
-    angles_mask_[..., 1:-1, 0] = (
-        mask[i, :-2] * mask[i, 1:-1] * mask[i, 2:]
-    )
-    angles_mask_[i, 2:-1, 0] = (
-        mask[i, :-3] * mask[i, 1:-2] * mask[i, 2:-1], mask[i, 3:]
-    )
+    # angles_mask_[..., 1:-1, 0] = (
+    #     mask[i, :-2] * mask[i, 1:-1] * mask[i, 2:]
+    # )
+    # angles_mask_[i, 2:-1, 0] = (
+    #     mask[i, :-3] * mask[i, 1:-2] * mask[i, 2:-1], mask[i, 3:]
+    # )
     # replace nan and (angles whose coords are not fully known) by 0.
     # angles_label_[~angles_mask_] = 0.
     angles_label_[angles_label_ != angles_label_] = 0.
@@ -249,7 +261,7 @@ def inference(*args, model, embedder,
     )
 
     # get frames for for later fape
-    bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles( 
+    bb_ca_trace_rebuilt, frames_labels = mp_nerf.proteins.ca_from_angles(
         points_label.reshape(1, -1, 4) # (B, L, 2, 2) -> (B, L, 4)
     ) 
 
@@ -333,7 +345,7 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
 
             # violation loss btween calphas - L1
             dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
-                                           infer["wrapper_pred"][:, :, 1],) # B, L, L
+                                           infer["wrapper_pred"][:, :, 1], ) # B, L, L
             dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = \
                 dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] + 5.
             viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.) 
@@ -443,7 +455,7 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
 
             # violation loss btween calphas - L1
             dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
-                                           infer["wrapper_pred"][:, :, 1],) # B, L, L
+                                           infer["wrapper_pred"][:, :, 1], ) # B, L, L
             dist_mat = dist_mat + torch.eye(dist_mat.shape[-1]).unsqueeze(0).to(dist_mat)*5.
             viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.).contiguous()
             

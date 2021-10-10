@@ -1,24 +1,19 @@
 import os
 import json
 import argparse
-import random
-import numpy as np
 
-import wandb
-import torch
-import esm
 import sidechainnet
 from sidechainnet.utils.sequence import ProteinVocabulary as VOCAB
+
+import sys
+sys.path.append("..")
 
 # IMPORTED ALSO IN LATER MODULES
 VOCAB = VOCAB()
 
-import mp_nerf
 from rgn2_replica.rgn2_trainers import *
 from rgn2_replica.embedders import *
-from rgn2_replica import set_seed, RGN2_Naive
-
-
+from rgn2_replica import set_seed, RGN2_Naive, mp_nerf
 
 
 def parse_arguments():
@@ -34,9 +29,9 @@ def parse_arguments():
     # data params
     parser.add_argument("--min_len", help="Min seq len, for train", type=int, default=0)
     parser.add_argument("--min_len_valid", help="Min seq len, for valid", type=int, default=0)
-    parser.add_argument("--max_len", help="Max seq len", type=int, default=512)
-    parser.add_argument("--casp_version", help="SCN dataset version", type=int, default=12)
-    parser.add_argument("--scn_thinning", help="SCN dataset thinning", type=int, default=90)
+    parser.add_argument("--max_len", help="Max seq len", type=int, default=128)#512)
+    parser.add_argument("--casp_version", help="SCN dataset version", type=int, default=7)
+    parser.add_argument("--scn_thinning", help="SCN dataset thinning", type=int, default=30)
     parser.add_argument("--xray", help="only use xray structures", type=bool, default=0)
     parser.add_argument("--frac_true_torsions", help="Provide right torsions for some prots", type=bool, default=0)
     parser.add_argument("--full_mask", help="require full mask in proteins", type=bool, default=1)
@@ -53,7 +48,8 @@ def parse_arguments():
     parser.add_argument("--num_recycles_train", type=int, default=3, 
                         help="number of recycling iters. set to 1 to speed training.",)
     # refiner params
-    parser.add_argument("--refiner_args", help="args for refiner module", type=json.loads, default={})
+    parser.add_argument("--refiner_args", help="args for refiner module", type=json.loads,
+                        default={"refiner_type": "En"})
     parser.add_argument("--seed", help="Random seed", default=101)
 
     return parser.parse_args()
@@ -145,17 +141,20 @@ def run_train_schedule(dataloaders, embedder, config, args):
     embedder = embedder.to(device)
 
     set_seed(config.seed)
-    model = RGN2_Naive(layers=config.num_layers,
-                       emb_dim=config.emb_dim+4,
-                       hidden=config.hidden,
-                       bidirectional=config.bidirectional,
-                       mlp_hidden=config.mlp_hidden,
-                       act=config.act,
-                       layer_type=config.layer_type,
-                       input_dropout=config.input_dropout,
-                       angularize=config.angularize,
-                       refiner_args=config.refiner_args,
-                       ).to(device)
+    # model = RGN2_Naive(layers=config.num_layers,
+    #                    emb_dim=config.emb_dim+4,
+    #                    hidden=config.hidden,
+    #                    bidirectional=config.bidirectional,
+    #                    mlp_hidden=config.mlp_hidden,
+    #                    act=config.act,
+    #                    layer_type=config.layer_type,
+    #                    input_dropout=config.input_dropout,
+    #                    angularize=config.angularize,
+    #                    refiner_args=config.refiner_args,
+    #                    ).to(device)
+    model = RGN2_IPA(
+        embedding_dim=config.emb_dim+4,
+    ).to(device)
     
     if args.resume_name is not None: 
         model.load_my_state_dict(torch.load(args.resume_name, map_location=device))
@@ -326,9 +325,10 @@ def get_training_schedule(args):
     loss_f = " metrics['drmsd'].mean() / len(infer['seq']) " 
 
     #         steps, ckpt, lr , bs , max_len, clip, loss_f
-    return [[32000, 135   , 1e-3, 16  , args.max_len, None, loss_f, 42  , ],
-            [64000, 135   , 1e-3, 32  , args.max_len, None, loss_f, 42  , ],
+    return [[32000, 135   , 1e-4, 16  , args.max_len, None, loss_f, 42  , ],
+            [64000, 135   , 1e-4, 32  , args.max_len, None, loss_f, 42  , ],
             [32000, 135   , 1e-4, 32  , args.max_len, None, loss_f, 42  , ],]
+    # return [[32, 2, 1e-3, 16, args.max_len, None, loss_f, 42, ]]
 
 
 if __name__ == '__main__':
