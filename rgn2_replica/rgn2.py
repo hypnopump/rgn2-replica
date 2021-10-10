@@ -111,7 +111,7 @@ def pred_post_process(points_preds: torch.Tensor,
                     )
                 # IPA-transformer as refiner
                 elif model.refiner.refiner_type == "IPA": 
-                    # rotation from origin to frame
+                    # rotation and translation from origin to frame
                     rotations = rearrange(torch.eye(3), 'di dj -> () dj di').to(frames_preds) @ frames_preds
                     coors = ca_trace_pred[i:i+1, :mask[i].shape[-1], 1].clone()
                     if model.refiner.refiner_detach: 
@@ -485,6 +485,8 @@ class RGN2_IPA(torch.nn.Module):
                 quaternions = matrix_to_quaternion(rotations)
             if translations is None: 
                 translations = torch.zeros((b, n, 3), device=device)
+
+            print(rotations.shape, translations.shape)
 
             # go through the layers and apply invariant point attention and feedforward
 
