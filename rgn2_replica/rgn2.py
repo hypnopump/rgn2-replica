@@ -112,7 +112,7 @@ def pred_post_process(points_preds: torch.Tensor,
                 # IPA-transformer as refiner
                 elif model.refiner.refiner_type == "IPA": 
                     feats, coors, r_iters = model.refiner(
-                        feats=feats, 
+                        x=feats, 
                         # mask would be supported for batch.
                         mask=None, # use for batch dim?
                         recycle=refine_args["recycle"],
