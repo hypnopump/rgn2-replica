@@ -14,13 +14,18 @@ import sidechainnet
 import mp_nerf
 from rgn2_replica import *
 from rgn2_replica.embedders import *
-from rgn2_replica.rgn2_refine import *
 from rgn2_replica.rgn2_utils import seqs_from_fasta
 from rgn2_replica.rgn2_trainers import infer_from_seqs
 
+try: 
+    import pyrosetta
+    from rgn2_replica.rgn2_refine import *
+except Exception as e:
+    print("Pyrosetta not available. Can't use refinement functions") 
+
 
 if __name__ == "__main__": 
-	# !python redictor.py --input proteins.fasta --model ../rgn2_models/baseline_run@_125K.pt --device 2
+    # !python redictor.py --input proteins.fasta --model ../rgn2_models/baseline_run@_125K.pt --device 2
     parser = argparse.ArgumentParser('Predict with RGN2 model')
     # inputs
     parser.add_argument("--input", help="FASTA or MultiFASTA with protein sequences to predict")
@@ -30,7 +35,6 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, help="Model file for prediction")
 
     # model params - same as training
-    parser.add_argument("--embedder_model", help="Embedding model to use", default='esm1b')
     parser.add_argument("--num_layers", help="num rnn layers", type=int, default=2)
     parser.add_argument("--emb_dim", help="embedding dimension", type=int, default=1280)
     parser.add_argument("--hidden", help="hidden dimension", type=int, default=1024)
@@ -55,9 +59,11 @@ if __name__ == "__main__":
     parser.add_argument("--seed", help="Random seed", default=101)
 
     args = parser.parse_args()
+    args.recycle = int(args.num_recycles_pred)
     args.bidirectional = bool(args.bidirectional)
     args.angularize = bool(args.angularize)
     args.refiner_args = dict(args.refiner_args)
+    args.mlp_hidden = [128, 4 if args.angularize == 0 else args.angularize]  # 4 # 64
 
     # mod parsed args
     if args.output_path is None: 
@@ -79,7 +85,7 @@ if __name__ == "__main__":
                        input_dropout=config.input_dropout,
                        angularize=config.angularize,
                        refiner_args=config.refiner_args,
-                       ).to(device)
+                       ).to(args.device)
 
     model.load_my_state_dict(torch.load(args.model, map_location=args.device))
     model = model.eval()

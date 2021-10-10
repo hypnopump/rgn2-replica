@@ -557,8 +557,18 @@ def infer_from_seqs(seq_list, model, embedder,
     
     # POST-PROCESS
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
-        points_preds, seq_list=seq_list, mask=mask, model=model
+        points_preds, 
+        mask=mask,
+        seq_list = seq_list, 
+        model=model, 
+        refine_args={
+            "embedds": embedds, 
+            "int_seq": int_seq.to(device), 
+            "recycle": recycle_func(None),
+            "inter_recycle": False,
+        }
     )
+
 
     return {
         # (L, 14, 3)
