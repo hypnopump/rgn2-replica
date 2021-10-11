@@ -555,11 +555,7 @@ def infer_from_seqs(seq_list, model, embedder,
     # POST-PROCESS
     points_preds, ca_trace_pred, frames_preds, wrapper_pred = pred_post_process(
         points_preds, 
-<<<<<<< HEAD
         mask=mask,
-=======
-        mask=mask, # long_mask == True for all seq_len
->>>>>>> 6809bbc... working prediction script.
         seq_list = seq_list, 
         model=model, 
         refine_args={
