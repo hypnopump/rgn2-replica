@@ -446,7 +446,8 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
             # calc metrics
             metrics = mp_nerf.proteins.get_protein_metrics(
                 true_coords=infer["coords"], # [:, infer["mask"]],
-                pred_coords=infer["wrapper_pred"], # [:, infer["mask"]],
+                # loss only on calphas. "wrapper_pred" for backbone 
+                pred_coords=infer["ca_trace_pred"], # [:, infer["mask"]],
                 detach=False
             )
 
