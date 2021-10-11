@@ -330,13 +330,10 @@ def predict(get_prot_, steps, model, embedder, return_preds=True,
                 pred_points=infer["points_preds"][:, :-1], # [angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
                 true_points=infer["points_label"][:, :-1], # [angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
             )
-
-            # violation loss btween calphas - L1
-            dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
-                                           infer["wrapper_pred"][:, :, 1],) # B, L, L
-            dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] = \
-                dist_mat[:, np.arange(dist_mat.shape[-1]), np.arange(dist_mat.shape[-1])] + 5.
-            viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.) 
+            # violation loss btween calphas - L2 on next-CA-term and repulsion @ 4.0 for rest
+            viol_loss = mp_nerf.ml_utils.ca_trace_viol_loss(
+                infer["wrapper_pred"][:, :, 1], next_d=3.80, other_d=4.0
+            ).mean()
             
             # calc metrics
             log_dict = {
@@ -441,11 +438,10 @@ def train(get_prot_, steps, model, embedder, optim, loss_f=None,
                 true_points=infer["points_label"][:, :-1], # [angle_mask].reshape(1, -1, 1, 2), # (B, no_pad_among(L*2), 1, 2) 
             )
 
-            # violation loss btween calphas - L1 # >= 0
-            dist_mat = mp_nerf.utils.cdist(infer["wrapper_pred"][:, :, 1], 
-                                           infer["wrapper_pred"][:, :, 1],) # B, L, L
-            dist_mat = dist_mat + torch.eye(dist_mat.shape[-1]).unsqueeze(0).to(dist_mat)*5.
-            viol_loss = -(dist_mat - 3.78).clamp(min=-np.inf, max=0.).contiguous()
+            # violation loss btween calphas - L2 on next-CA-term and repulsion @ 4.0 for rest
+            viol_loss = mp_nerf.ml_utils.ca_trace_viol_loss(
+                infer["wrapper_pred"][:, :, 1], next_d=3.80, other_d=4.0
+            ).mean()
             
             # calc metrics
             metrics = mp_nerf.proteins.get_protein_metrics(
