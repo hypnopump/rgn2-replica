@@ -197,7 +197,7 @@ class AconC(torch.jit.ScriptModule):
 # adapted to match pytorch's implementation
 class mLSTM(torch.nn.modules.rnn.RNNBase):
     def __init__(self, input_size, hidden_size, bias=True, num_layers=1,
-                 batch_first=True, dropout=0, bidirectional=False, peephole=False):
+                 batch_first=True, dropout=0, bidirectional=False, cell_type="lstm"):
         """ Multiplicative LSTM layer which supports batching by mask
             * input_size: read pytorch docs - LSTM
             * hidden_size: read pytorch docs - LSTM
@@ -208,8 +208,7 @@ class mLSTM(torch.nn.modules.rnn.RNNBase):
             * dropout: float. amount of dropout to add to inputs.
                               Not supported
             * bidirectional: bool. whether layer is bidirectional. Not supported.
-            * peephole: bool. whether to add peephole connections ( as the
-                              original Schmidhuber paper:
+            * cell_type: str. one of ["lstm", "peephole", "layernorm"]. For "peephole", see
                               http://www.bioinf.jku.at/publications/older/2604.pdf )
         """
         super().__init__(
@@ -230,9 +229,11 @@ class mLSTM(torch.nn.modules.rnn.RNNBase):
         self.bias_ih_l = torch.nn.Parameter(b_im)   # input - hidden (forget)
         self.bias_hh_l = torch.nn.Parameter(b_hm)   # hidden - hidden (update)
 
-        if self.peephole:
+        if self.cell_type == "peephole":
             self.lstm_cell = PeepLSTMCell(input_size, hidden_size, bias)
-        else:
+        elif self.cell_type == "layernorm": 
+            self.lstm_cell = LayerNormLSTMCell(input_size, hidden_size, bias)
+        else: # normal LSTMCell
             self.lstm_cell = torch.nn.modules.rnn.LSTMCell(input_size, hidden_size, bias)
 
         self.reset_parameters()
@@ -289,7 +290,7 @@ class mLSTM(torch.nn.modules.rnn.RNNBase):
 # adapt LSTM to same api
 class LSTM(torch.nn.modules.rnn.RNNBase):
     def __init__(self, input_size, hidden_size, bias=True, num_layers=1,
-                 batch_first=True, dropout=0, bidirectional=False, peephole=False):
+                 batch_first=True, dropout=0, bidirectional=False, cell_type="lstm"):
         """ Custom LSTM layer which supports batching by mask
             * input_size: read pytorch docs - LSTM
             * hidden_size: read pytorch docs - LSTM
@@ -300,8 +301,7 @@ class LSTM(torch.nn.modules.rnn.RNNBase):
             * dropout: float. amount of dropout to add to inputs.
                               Not supported
             * bidirectional: bool. whether layer is bidirectional. Not supported.
-            * peephole: bool. whether to add peephole connections ( as the
-                              original Schmidhuber paper:
+            * cell_type: str. one of ["lstm", "peephole", "layernorm"]. For "peephole", see
                               http://www.bioinf.jku.at/publications/older/2604.pdf )
         """
         super().__init__(
@@ -313,9 +313,11 @@ class LSTM(torch.nn.modules.rnn.RNNBase):
         self.batch_first = batch_first
         self.peephole = peephole
 
-        if self.peephole:
+        if self.cell_type == "peephole":
             self.lstm_cell = PeepLSTMCell(input_size, hidden_size, bias)
-        else:
+        elif self.cell_type == "layernorm": 
+            self.lstm_cell = LayerNormLSTMCell(input_size, hidden_size, bias)
+        else: # normal LSTMCell
             self.lstm_cell = torch.nn.modules.rnn.LSTMCell(input_size, hidden_size, bias)
         self.reset_parameters()
 
@@ -413,6 +415,51 @@ class PeepLSTMCell(torch.jit.ScriptModule):
         o = torch.sigmoid(o + (self.weight_ch_o * cy))
         hy = o * torch.tanh(cy)
 
+        return hy, cy
+
+# from: https://github.com/chenhuaizhen/LayerNorm_LSTM/blob/master/ln-wd-vd-lstm.py
+class LayerNormLSTMCell(nn.LSTMCell):
+    def __init__(self, input_size, hidden_size, dropout=0.0, bias=True, use_layer_norm=True):
+        super().__init__(input_size, hidden_size, bias)
+        self.use_layer_norm = use_layer_norm
+        if self.use_layer_norm:
+            self.ln_ih = nn.LayerNorm(4 * hidden_size)
+            self.ln_hh = nn.LayerNorm(4 * hidden_size)
+            self.ln_ho = nn.LayerNorm(hidden_size)
+        # DropConnect on the recurrent hidden to hidden weight
+        self.dropout = dropout
+
+    def forward(self, 
+        input: torch.Tensor, 
+        hidden: Optional[Tuple[torch.Tensor, torch.Tensor]], 
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self.check_forward_input(input)
+        if hidden is None:
+            hx = input.new_zeros(input.size(0), self.hidden_size, requires_grad=False)
+            cx = input.new_zeros(input.size(0), self.hidden_size, requires_grad=False)
+        else:
+            hx, cx = hidden
+        self.check_forward_hidden(input, hx, '[0]')
+        self.check_forward_hidden(input, cx, '[1]')
+
+        weight_hh = nn.functional.dropout(self.weight_hh, p=self.dropout, training=self.training)
+        if self.use_layer_norm:
+            gates = self.ln_ih(F.linear(input, self.weight_ih, self.bias_ih)) \
+                     + self.ln_hh(F.linear(hx, weight_hh, self.bias_hh))
+        else:
+            gates = F.linear(input, self.weight_ih, self.bias_ih) \
+                    + F.linear(hx, weight_hh, self.bias_hh)
+
+        i, f, c, o = gates.chunk(4, 1)
+        i_ = torch.sigmoid(i)
+        f_ = torch.sigmoid(f)
+        c_ = torch.tanh(c)
+        o_ = torch.sigmoid(o)
+        cy = (f_ * cx) + (i_ * c_)
+        if self.use_layer_norm:
+            hy = o_ * self.ln_ho(torch.tanh(cy))
+        else:
+            hy = o_ * torch.tanh(cy)
         return hy, cy
 
 
@@ -669,8 +716,10 @@ class RGN2_Naive(torch.nn.Module):
             "LSTM": LSTM, # torch.nn.LSTM,
             "GRU": torch.nn.GRU,
             "mLSTM": mLSTM,
-            "peepLSTM": partial(LSTM, peephole=True),
-            "peepmLSTM": partial(mLSTM, peephole=True),
+            "peepLSTM": partial(LSTM, cell_type="peephole"),
+            "peepmLSTM": partial(mLSTM, cell_type="peephole"),
+            "layernormLSTM": partial(LSTM, cell_type="layernorm"),
+            "layernormmLSTM": partial(mLSTM, cell_type="layernorm"),
         }
         act_types = {
             "relu": torch.nn.ReLU,
