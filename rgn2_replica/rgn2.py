@@ -218,7 +218,7 @@ class mLSTM(torch.nn.modules.rnn.RNNBase):
 
         self.num_layers = num_layers
         self.batch_first = batch_first
-        self.peephole = peephole
+        self.cell_type = cell_type
 
         w_im = torch.Tensor(self.num_layers, hidden_size, input_size)
         w_hm = torch.Tensor(self.num_layers, hidden_size, hidden_size)
@@ -311,7 +311,7 @@ class LSTM(torch.nn.modules.rnn.RNNBase):
 
         self.num_layers = num_layers
         self.batch_first = batch_first
-        self.peephole = peephole
+        self.cell_type = cell_type
 
         if self.cell_type == "peephole":
             self.lstm_cell = PeepLSTMCell(input_size, hidden_size, bias)
@@ -418,14 +418,14 @@ class PeepLSTMCell(torch.jit.ScriptModule):
         return hy, cy
 
 # from: https://github.com/chenhuaizhen/LayerNorm_LSTM/blob/master/ln-wd-vd-lstm.py
-class LayerNormLSTMCell(nn.LSTMCell):
+class LayerNormLSTMCell(torch.nn.modules.rnn.LSTMCell):
     def __init__(self, input_size, hidden_size, dropout=0.0, bias=True, use_layer_norm=True):
         super().__init__(input_size, hidden_size, bias)
         self.use_layer_norm = use_layer_norm
         if self.use_layer_norm:
-            self.ln_ih = nn.LayerNorm(4 * hidden_size)
-            self.ln_hh = nn.LayerNorm(4 * hidden_size)
-            self.ln_ho = nn.LayerNorm(hidden_size)
+            self.ln_ih = torch.nn.LayerNorm(4 * hidden_size)
+            self.ln_hh = torch.nn.LayerNorm(4 * hidden_size)
+            self.ln_ho = torch.nn.LayerNorm(hidden_size)
         # DropConnect on the recurrent hidden to hidden weight
         self.dropout = dropout
 
@@ -433,16 +433,16 @@ class LayerNormLSTMCell(nn.LSTMCell):
         input: torch.Tensor, 
         hidden: Optional[Tuple[torch.Tensor, torch.Tensor]], 
         ) -> Tuple[torch.Tensor, torch.Tensor]:
-        self.check_forward_input(input)
+        # self.check_forward_input(input)
         if hidden is None:
             hx = input.new_zeros(input.size(0), self.hidden_size, requires_grad=False)
             cx = input.new_zeros(input.size(0), self.hidden_size, requires_grad=False)
         else:
             hx, cx = hidden
-        self.check_forward_hidden(input, hx, '[0]')
-        self.check_forward_hidden(input, cx, '[1]')
+        #self.check_forward_hidden(input, hx, '[0]')
+        # self.check_forward_hidden(input, cx, '[1]')
 
-        weight_hh = nn.functional.dropout(self.weight_hh, p=self.dropout, training=self.training)
+        weight_hh = torch.nn.functional.dropout(self.weight_hh, p=self.dropout, training=self.training)
         if self.use_layer_norm:
             gates = self.ln_ih(F.linear(input, self.weight_ih, self.bias_ih)) \
                      + self.ln_hh(F.linear(hx, weight_hh, self.bias_hh))
@@ -767,10 +767,12 @@ class RGN2_Naive(torch.nn.Module):
         # jit-COMPILE if mLSTM or custom LSTM
         if isinstance(self.stacked_lstm_f, mLSTM) or isinstance(self.stacked_lstm_f, LSTM):
             self.stacked_lstm_f = torch.nn.ModuleList([
-                torch.jit.script(self.stacked_lstm_f[i]) for i in range(self.num_layers)
+                torch.jit.script(self.stacked_lstm_f[i]) if not "layernorm" in self.layer_type else self.stacked_lstm_f[i] \
+                for i in range(self.num_layers)
             ])
             self.stacked_lstm_b = torch.nn.ModuleList([
-                torch.jit.script(self.stacked_lstm_b) for i in range(self.num_layers)
+                torch.jit.script(self.stacked_lstm_b[i]) if not "layernorm" in self.layer_type else self.stacked_lstm_b[i] \
+                for i in range(self.num_layers)
             ])
 
 
@@ -1049,6 +1051,3 @@ class RGN2_Refiner_Wrapper(torch.nn.Module):
                 r_iters.append( coors.detach() )
 
         return pred_feats, coors, r_iters
-
-
-
