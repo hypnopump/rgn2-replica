@@ -80,7 +80,7 @@ This will start the run using sample dataset in repo directory on CPU.
 
 Hey there! New ideas are welcome: open/close issues, fork the repo and share your code with a Pull Request. 
 
-Currently the main discussions / conversation about the model development is happening [in this discord server](https://discord.gg/VpPpa9EZ) under the `/self-supervised-learning` channel.  
+Currently the main discussions / conversation about the model development is happening [in this discord server](https://discord.com/invite/GgDBFP8ZEt) under the `/self-supervised-learning` channel.  
 
 Clone this project to your computer:
 
