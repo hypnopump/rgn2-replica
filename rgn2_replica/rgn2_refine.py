@@ -150,7 +150,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", help="protein file")
     parser.add_argument("--output", help="protein file for output", default=None)
-    parser.add_argument("--relax_iters", help="energy minimization iterations", default=100)
+    parser.add_argument("--min_iters", help="energy minimization iterations", default=100)
     parser.add_argument("--relax_iters", help="relaxation iterations", default=300)
     parser.add_argument("--coord_constraint", help="for coord mod. higher = sticter", default=0.5)
     parser.add_argument("--mess", help="message to print before attempt")
